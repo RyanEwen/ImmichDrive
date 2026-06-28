@@ -37,11 +37,21 @@ public sealed class PlaceholderPopulator
     private readonly AssetIndex _index;
     private readonly string _syncRootPath;
 
-    public PlaceholderPopulator(ImmichClient client, AssetIndex index, string syncRootPath)
+    /// <summary>
+    /// Optional <c>asset_id → (size, isVideo, name)</c> carried over from the previous index before a
+    /// layout rebuild. When present, a "new" asset whose metadata is cached is created from the cache
+    /// instead of re-enriching it over the network — so a folder-naming migration doesn't re-fetch the
+    /// whole library. Null on a normal first sync.
+    /// </summary>
+    private readonly IReadOnlyDictionary<string, (long Size, bool IsVideo, string Name)>? _metaCache;
+
+    public PlaceholderPopulator(ImmichClient client, AssetIndex index, string syncRootPath,
+        IReadOnlyDictionary<string, (long Size, bool IsVideo, string Name)>? metaCache = null)
     {
         _client = client;
         _index = index;
         _syncRootPath = syncRootPath;
+        _metaCache = metaCache;
     }
 
     /// <summary>Full populate over the whole timeline. Reports (processed, totalApprox) as it goes.</summary>
@@ -342,8 +352,11 @@ public sealed class PlaceholderPopulator
         try { assets = await _client.GetBucketAssetsAsync(bucket.Raw, userId, null, ct); }
         catch (Exception ex) { Logger.Warn(ex, "Bucket {0} failed", bucket.Raw); return false; }
 
-        var localMonth = bucket.Date.ToLocalTime();
-        string monthName = MonthFolderName(localMonth);
+        // Name the folder from the bucket's OWN month — NOT a local-time conversion. The bucket key
+        // ("2026-06-01") already identifies the month; parsing it as UTC and calling ToLocalTime()
+        // shifted it back a day for users west of UTC (e.g. -04:00 → 2026-05-31), so June's assets
+        // landed in a "May" folder and the current month had no folder at all.
+        string monthName = MonthFolderName(bucket.Date);
         string monthRel = string.IsNullOrEmpty(relRoot) ? monthName : Path.Combine(relRoot, monthName);
         string monthAbs = EnsureFolder(monthRel);
         string monthPrefix = monthRel + Path.DirectorySeparatorChar;
@@ -373,15 +386,33 @@ public sealed class PlaceholderPopulator
 
         if (newAssets.Count == 0) return true;
 
-        // Enrich new assets (real size + name — the timeline payload has neither) concurrently.
-        using (var sem = new SemaphoreSlim(EnrichConcurrency))
+        // Resolve metadata from the carried-over cache first (a layout migration already knows every
+        // asset's size + name), then enrich only what's left — the timeline payload has neither.
+        var toEnrich = newAssets;
+        if (_metaCache != null)
         {
-            await Task.WhenAll(newAssets.Select(async a =>
+            toEnrich = new List<ImmichAsset>();
+            foreach (var a in newAssets)
             {
-                await sem.WaitAsync(ct);
-                try { await _client.EnrichAsync(a, ct); } finally { sem.Release(); }
-            }));
+                if (_metaCache.TryGetValue(a.Id, out var m) && m.Size > 0)
+                {
+                    a.FileSizeBytes = m.Size;
+                    a.Type = m.IsVideo ? "VIDEO" : "IMAGE";
+                    if (string.IsNullOrEmpty(a.OriginalFileName)) a.OriginalFileName = m.Name;
+                }
+                else toEnrich.Add(a);
+            }
         }
+
+        if (toEnrich.Count > 0)
+            using (var sem = new SemaphoreSlim(EnrichConcurrency))
+            {
+                await Task.WhenAll(toEnrich.Select(async a =>
+                {
+                    await sem.WaitAsync(ct);
+                    try { await _client.EnrichAsync(a, ct); } finally { sem.Release(); }
+                }));
+            }
 
         var indexRows = new List<(string, string, bool, long)>();
         foreach (var asset in newAssets)
@@ -401,9 +432,11 @@ public sealed class PlaceholderPopulator
         return true;
     }
 
-    /// <summary>Readable month folder name, e.g. "2026-06 June" (the yyyy-MM prefix keeps it sortable).</summary>
-    private static string MonthFolderName(DateTimeOffset localMonth) =>
-        localMonth.ToString("yyyy-MM MMMM", CultureInfo.InvariantCulture);
+    /// <summary>Readable month folder name, e.g. "2026-06 June" (the yyyy-MM prefix keeps it sortable).
+    /// Takes the bucket's own date (its year+month identify the month) — do NOT pass a local-time
+    /// conversion, which can roll the month boundary backwards for negative UTC offsets.</summary>
+    private static string MonthFolderName(DateTimeOffset bucketMonth) =>
+        bucketMonth.ToString("yyyy-MM MMMM", CultureInfo.InvariantCulture);
 
     /// <summary>One-time cleanup: the flat "Recent" folder was removed from the layout.</summary>
     private void RemoveLegacyRecentFolder()

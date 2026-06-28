@@ -138,6 +138,28 @@ public sealed class AssetIndex
         return list;
     }
 
+    /// <summary>
+    /// Snapshot of <c>asset_id → (size, isVideo, fileName)</c> for every asset. Captured before a
+    /// layout rebuild so the rebuild can re-create placeholders from known metadata instead of
+    /// re-enriching the whole library over the network. Prefers a row with a non-zero size.
+    /// </summary>
+    public Dictionary<string, (long Size, bool IsVideo, string Name)> BuildMetadataCache()
+    {
+        var map = new Dictionary<string, (long Size, bool IsVideo, string Name)>();
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT asset_id, size, is_video, rel_path FROM assets;";
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            string id = r.GetString(0);
+            long size = r.GetInt64(1);
+            if (map.TryGetValue(id, out var existing) && existing.Size > 0) continue; // keep the good one
+            map[id] = (size, r.GetInt64(2) != 0, Path.GetFileName(r.GetString(3)));
+        }
+        return map;
+    }
+
     private List<(string, string)> RowsWhere(string where, string lo, string hi)
     {
         var list = new List<(string, string)>();

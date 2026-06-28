@@ -19,12 +19,17 @@ public sealed class DriveManager
     public static DriveManager Current { get; } = new();
 
     /// <summary>Bump when the on-disk folder/file naming scheme changes (forces a clean rebuild).</summary>
-    private const int CurrentLayoutVersion = 3;
+    private const int CurrentLayoutVersion = 4;
 
     private ImmichClient? _client;
     private CloudProviderService? _provider;
     private AssetIndex? _index;
     private CancellationTokenSource? _populateCts;
+
+    /// <summary>Metadata carried over from the pre-rebuild index so a layout migration re-creates
+    /// placeholders without re-enriching every asset. Set during the migration, used by the first
+    /// populate, then null for the rest of the session.</summary>
+    private IReadOnlyDictionary<string, (long Size, bool IsVideo, string Name)>? _migrationCache;
 
     // Auto-refresh: poll the newest month often (catch new phone photos fast) and the whole
     // timeline occasionally. A single lock serializes all populate work so polls never overlap
@@ -82,10 +87,22 @@ public sealed class DriveManager
             // registration; it no longer depends on the versioned package dir.)
             await SyncRootService.RegisterAsync(syncRoot, s.ServerUrl, icon);
 
-            // One-time clean rebuild when the on-disk layout/naming revision changes.
+            // One-time clean rebuild when the on-disk layout/naming revision changes. Carry the old
+            // index's metadata forward first so the rebuild re-creates placeholders from known
+            // size/name instead of re-enriching the entire library over the network.
             if (s.LayoutVersion != CurrentLayoutVersion)
             {
                 Set(DriveStatus.Connecting, "Updating drive layout…");
+                try
+                {
+                    var old = new AssetIndex();
+                    old.EnsureCreated();
+                    var cache = old.BuildMetadataCache();
+                    if (cache.Count > 0) _migrationCache = cache;
+                    Logger.Info("Layout migration: carried {0} assets' metadata forward", cache.Count);
+                }
+                catch (Exception ex) { Logger.Warn(ex, "Building migration metadata cache failed (will re-enrich)"); }
+
                 AssetIndex.DeleteDatabaseFile();
                 WipeSyncRootSubfolders(syncRoot);
                 s.LayoutVersion = CurrentLayoutVersion;
@@ -165,7 +182,7 @@ public sealed class DriveManager
 
         try
         {
-            var pop = new PlaceholderPopulator(_client, _index, SettingsManager.Current.EffectiveSyncRootPath);
+            var pop = new PlaceholderPopulator(_client, _index, SettingsManager.Current.EffectiveSyncRootPath, _migrationCache);
             if (newestOnly)
             {
                 await pop.PopulateNewestAsync(ct);
@@ -174,6 +191,7 @@ public sealed class DriveManager
             {
                 var progress = new Progress<(int, int)>(p => { Progress = p; StatusChanged?.Invoke(); });
                 await pop.PopulateAsync(progress, ct);
+                _migrationCache = null; // consumed: the rebuilt index is now authoritative
                 SettingsManager.Current.LastSyncUtc = DateTimeOffset.UtcNow;
                 SettingsManager.SaveSettings();
             }
