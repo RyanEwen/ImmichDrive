@@ -103,13 +103,61 @@ public sealed class AssetIndex
         catch { return null; }
     }
 
-    /// <summary>Removes all rows whose relative path starts with the given prefix (e.g. "Recent\").</summary>
-    public void DeleteByPathPrefix(string prefix)
+    // Prefix queries use a range [lo, hi) rather than LIKE, so '_' / '%' in folder names (sanitized
+    // album names can contain '_') aren't treated as wildcards.
+    private static (string Lo, string Hi) PrefixRange(string prefix)
+    {
+        string lo = Normalize(prefix);
+        string hi = lo[..^1] + (char)(lo[^1] + 1);
+        return (lo, hi);
+    }
+
+    /// <summary>All (relPath, assetId) rows whose path starts with the prefix (e.g. an album folder).</summary>
+    public List<(string Rel, string AssetId)> RowsUnderPrefix(string prefix)
+    {
+        var (lo, hi) = PrefixRange(prefix);
+        return RowsWhere("rel_path >= $lo AND rel_path < $hi", lo, hi);
+    }
+
+    /// <summary>All (relPath, assetId) rows whose path does NOT start with the prefix (e.g. timeline = not under Albums\).</summary>
+    public List<(string Rel, string AssetId)> RowsNotUnderPrefix(string prefix)
+    {
+        var (lo, hi) = PrefixRange(prefix);
+        return RowsWhere("rel_path < $lo OR rel_path >= $hi", lo, hi);
+    }
+
+    private List<(string, string)> RowsWhere(string where, string lo, string hi)
+    {
+        var list = new List<(string, string)>();
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"SELECT rel_path, asset_id FROM assets WHERE {where};";
+        cmd.Parameters.AddWithValue("$lo", lo);
+        cmd.Parameters.AddWithValue("$hi", hi);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add((r.GetString(0), r.GetString(1)));
+        return list;
+    }
+
+    /// <summary>Removes a single row by relative path.</summary>
+    public void DeleteByRelPath(string relPath)
     {
         using var c = Open();
         using var cmd = c.CreateCommand();
-        cmd.CommandText = "DELETE FROM assets WHERE rel_path LIKE $p;";
-        cmd.Parameters.AddWithValue("$p", Normalize(prefix) + "%");
+        cmd.CommandText = "DELETE FROM assets WHERE rel_path = $p;";
+        cmd.Parameters.AddWithValue("$p", Normalize(relPath));
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>Removes all rows whose relative path starts with the given prefix (e.g. "Recent\").</summary>
+    public void DeleteByPathPrefix(string prefix)
+    {
+        var (lo, hi) = PrefixRange(prefix);
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "DELETE FROM assets WHERE rel_path >= $lo AND rel_path < $hi;";
+        cmd.Parameters.AddWithValue("$lo", lo);
+        cmd.Parameters.AddWithValue("$hi", hi);
         cmd.ExecuteNonQuery();
     }
 

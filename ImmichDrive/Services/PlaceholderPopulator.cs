@@ -47,32 +47,68 @@ public sealed class PlaceholderPopulator
         int total = buckets.Sum(b => b.Count);
         int done = 0;
 
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool allOk = true;
         foreach (var bucket in buckets) // newest first
         {
             ct.ThrowIfCancellationRequested();
-            await ProcessBucketAsync(bucket, ct, () => progress?.Report((++done, total)));
+            allOk &= await ProcessBucketAsync(bucket, ct, () => progress?.Report((++done, total)), seenIds);
         }
+
+        // Only prune when we have the complete picture (no bucket fetch failed), so a transient
+        // network error can never delete the whole library.
+        if (allOk) PruneTimeline(seenIds);
 
         await PopulateAlbumsAsync(ct);
 
         Logger.Info("Populate complete: {0} processed, {1} indexed, across {2} buckets", done, _index.Count(), buckets.Count);
     }
 
+    /// <summary>Removes timeline placeholders whose asset no longer exists in Immich.</summary>
+    private void PruneTimeline(HashSet<string> seenIds)
+    {
+        int removed = 0;
+        foreach (var (rel, assetId) in _index.RowsNotUnderPrefix(AlbumsFolderName + "\\"))
+        {
+            if (seenIds.Contains(assetId)) continue;
+            DeletePlaceholder(rel);
+            removed++;
+        }
+        if (removed > 0) Logger.Info("Pruned {0} timeline placeholders removed from Immich", removed);
+    }
+
+    /// <summary>Deletes a placeholder file (clearing attributes first) and its index row.</summary>
+    private void DeletePlaceholder(string rel)
+    {
+        try
+        {
+            string abs = Path.Combine(_syncRootPath, rel);
+            if (File.Exists(abs))
+            {
+                try { File.SetAttributes(abs, FileAttributes.Normal); } catch { }
+                File.Delete(abs);
+            }
+        }
+        catch (Exception ex) { Logger.Warn(ex, "Delete placeholder failed for {0}", rel); }
+        _index.DeleteByRelPath(rel);
+    }
+
     /// <summary>
-    /// Mirrors Immich albums into an <c>Albums\&lt;album name&gt;\</c> tree. Add-only: assets removed
-    /// from an album (or deleted albums) are not pruned. Album assets carry full metadata, so no
-    /// per-asset enrich is needed; placeholders share the asset id with the timeline copy, so
-    /// thumbnails + hydration work the same.
+    /// Mirrors Immich albums into an <c>Albums\&lt;album name&gt;\</c> tree, and keeps them in sync:
+    /// assets removed from an album are pruned, and folders for deleted/renamed albums are removed.
+    /// Album assets carry full metadata, so no per-asset enrich is needed; placeholders share the
+    /// asset id with the timeline copy, so thumbnails + hydration work the same.
     /// </summary>
     private async Task PopulateAlbumsAsync(CancellationToken ct)
     {
         List<ImmichClient.AlbumRef> albums;
         try { albums = await _client.GetAlbumsAsync(ct); }
         catch (Exception ex) { Logger.Warn(ex, "Listing albums failed"); return; }
-        if (albums.Count == 0) return;
+        if (albums.Count == 0) return; // empty (or a transient failure) → don't prune anything
 
         EnsureFolder(AlbumsFolderName);
         var usedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var currentAlbumFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var album in albums)
         {
@@ -81,11 +117,14 @@ public sealed class PlaceholderPopulator
             string albumRel = Path.Combine(AlbumsFolderName, folderName);
             string albumAbs = EnsureFolder(albumRel);
             string relPrefix = albumRel + Path.DirectorySeparatorChar;
+            currentAlbumFolders.Add(albumRel); // reserve the folder before fetching so a transient
+                                               // asset-fetch failure can't orphan it
 
             List<ImmichAsset> assets;
             try { assets = await _client.GetAlbumAssetsAsync(album.Id, ct); }
             catch (Exception ex) { Logger.Warn(ex, "Album {0} fetch failed", album.Name); continue; }
 
+            var currentIds = new HashSet<string>(assets.Select(a => a.Id), StringComparer.OrdinalIgnoreCase);
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var indexRows = new List<(string, string, bool, long)>();
             foreach (var asset in assets)
@@ -116,6 +155,35 @@ public sealed class PlaceholderPopulator
                 catch (Exception ex) { Logger.Warn(ex, "Album placeholder failed for asset {0}", asset.Id); }
             }
             if (indexRows.Count > 0) _index.UpsertMany(indexRows);
+
+            // Prune assets that were removed from this album (fetch succeeded → set is authoritative).
+            int pruned = 0;
+            foreach (var (rel, assetId) in _index.RowsUnderPrefix(relPrefix))
+                if (!currentIds.Contains(assetId)) { DeletePlaceholder(rel); pruned++; }
+            if (pruned > 0) Logger.Info("Album '{0}': pruned {1} removed assets", album.Name, pruned);
+        }
+
+        PruneOrphanAlbumFolders(currentAlbumFolders);
+    }
+
+    /// <summary>Removes album folders (and index rows) that no longer match a current Immich album.</summary>
+    private void PruneOrphanAlbumFolders(HashSet<string> currentAlbumFolders)
+    {
+        string albumsAbs = Path.Combine(_syncRootPath, AlbumsFolderName);
+        if (!Directory.Exists(albumsAbs)) return;
+        foreach (var dir in Directory.GetDirectories(albumsAbs))
+        {
+            string rel = Path.Combine(AlbumsFolderName, Path.GetFileName(dir));
+            if (currentAlbumFolders.Contains(rel)) continue;
+            try
+            {
+                foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+                    try { File.SetAttributes(f, FileAttributes.Normal); } catch { }
+                Directory.Delete(dir, recursive: true);
+                Logger.Info("Removed deleted album folder {0}", rel);
+            }
+            catch (Exception ex) { Logger.Warn(ex, "Removing album folder {0} failed", rel); }
+            _index.DeleteByPathPrefix(rel + "\\");
         }
     }
 
@@ -138,12 +206,16 @@ public sealed class PlaceholderPopulator
         if (buckets.Count > 0) await ProcessBucketAsync(buckets[0], ct, null);
     }
 
-    /// <summary>Processes one month bucket: self-heals known placeholders, creates brand-new ones.</summary>
-    private async Task ProcessBucketAsync(ImmichClient.BucketRef bucket, CancellationToken ct, Action? onAsset)
+    /// <summary>
+    /// Processes one month bucket: self-heals known placeholders, creates brand-new ones, and adds
+    /// every asset id it sees to <paramref name="seenIds"/> (for prune reconciliation). Returns false
+    /// if the bucket couldn't be fetched (so the caller knows the picture is incomplete and skips pruning).
+    /// </summary>
+    private async Task<bool> ProcessBucketAsync(ImmichClient.BucketRef bucket, CancellationToken ct, Action? onAsset, HashSet<string>? seenIds = null)
     {
         List<ImmichAsset> assets;
         try { assets = await _client.GetBucketAssetsAsync(bucket.Raw, ct); }
-        catch (Exception ex) { Logger.Warn(ex, "Bucket {0} failed", bucket.Raw); return; }
+        catch (Exception ex) { Logger.Warn(ex, "Bucket {0} failed", bucket.Raw); return false; }
 
         var localMonth = bucket.Date.ToLocalTime();
         string monthActual = MonthFolderName(localMonth);
@@ -155,6 +227,7 @@ public sealed class PlaceholderPopulator
         foreach (var asset in assets)
         {
             ct.ThrowIfCancellationRequested();
+            seenIds?.Add(asset.Id);
             var rows = _index.RowsForAsset(asset.Id);
             if (rows.Count == 0) { newAssets.Add(asset); continue; }
 
@@ -178,7 +251,7 @@ public sealed class PlaceholderPopulator
             onAsset?.Invoke();
         }
 
-        if (newAssets.Count == 0) return;
+        if (newAssets.Count == 0) return true;
 
         // Enrich new assets (real size + name — the timeline payload has neither) concurrently.
         using (var sem = new SemaphoreSlim(EnrichConcurrency))
@@ -207,6 +280,7 @@ public sealed class PlaceholderPopulator
         }
 
         if (indexRows.Count > 0) _index.UpsertMany(indexRows);
+        return true;
     }
 
     /// <summary>Readable month folder name, e.g. "2026-06 June" (the yyyy-MM prefix keeps it sortable).</summary>
