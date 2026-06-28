@@ -11,12 +11,16 @@
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                     CornerRadius="8" Padding="16,12">
-                <Grid>
-                    <StackPanel VerticalAlignment="Center">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
                         <TextBlock Text="App theme" FontWeight="SemiBold" />
-                        <TextBlock Text="Appearance of this settings window." Opacity="0.7" />
+                        <TextBlock Text="Appearance of this settings window." Opacity="0.7" TextWrapping="Wrap" />
                     </StackPanel>
-                    <ComboBox x:Name="ThemeCombo" HorizontalAlignment="Right" MinWidth="160"
+                    <ComboBox Grid.Column="1" x:Name="ThemeCombo" VerticalAlignment="Center" MinWidth="160"
                               SelectionChanged="ThemeCombo_SelectionChanged">
                         <ComboBoxItem Content="System default" />
                         <ComboBoxItem Content="Light" />
@@ -29,13 +33,17 @@
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                     CornerRadius="8" Padding="16,12">
-                <Grid>
-                    <StackPanel VerticalAlignment="Center">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
                         <TextBlock Text="Read-only drive" FontWeight="SemiBold" />
                         <TextBlock Text="Block edits, deletes, renames and new files. Use the Upload folder to add photos to Immich."
                                    Opacity="0.7" TextWrapping="Wrap" />
                     </StackPanel>
-                    <ToggleSwitch x:Name="ReadOnlyToggle" HorizontalAlignment="Right" MinWidth="0"
+                    <ToggleSwitch Grid.Column="1" x:Name="ReadOnlyToggle" VerticalAlignment="Center" MinWidth="0"
                                   Toggled="ReadOnlyToggle_Toggled" />
                 </Grid>
             </Border>
@@ -44,13 +52,17 @@
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                     CornerRadius="8" Padding="16,12">
-                <Grid>
-                    <StackPanel VerticalAlignment="Center">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
                         <TextBlock Text="Start at sign-in" FontWeight="SemiBold" />
                         <TextBlock Text="Keep the drive online by launching ImmichDrive when you sign in."
                                    Opacity="0.7" TextWrapping="Wrap" />
                     </StackPanel>
-                    <ToggleSwitch x:Name="StartupToggle" HorizontalAlignment="Right" MinWidth="0"
+                    <ToggleSwitch Grid.Column="1" x:Name="StartupToggle" VerticalAlignment="Center" MinWidth="0"
                                   Toggled="StartupToggle_Toggled" />
                 </Grid>
             </Border>

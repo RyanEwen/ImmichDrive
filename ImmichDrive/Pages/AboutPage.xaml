@@ -84,6 +84,26 @@
             </Grid>
         </Border>
 
+        <!-- Source Code -->
+        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="4" Padding="16" Margin="0,0,0,8">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <FontIcon Glyph="&#xE12B;" FontSize="24" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Source Code" FontSize="14" FontWeight="Medium"/>
+                    <TextBlock Text="View the project on GitHub" FontSize="12" Opacity="0.5"/>
+                </StackPanel>
+                <HyperlinkButton Grid.Column="2" Content="GitHub Repository"
+                                 NavigateUri="https://github.com/RyanEwen/ImmichDrive" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
         <!-- License -->
         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
