@@ -1,74 +1,172 @@
-# Generates the MSIX visual assets (gradient + photo glyph) into Images\.
+# Generates the MSIX visual assets AND the app .ico from one source: a rounded 5-blade
+# camera aperture in Immich's logo colors, on a dark slate tile.
 # Run with Windows PowerShell: powershell.exe -NoProfile -File generate-msix-images.ps1
-# ASCII only.
+# ASCII only (Windows PowerShell 5.1 reads BOM-less .ps1 as ANSI).
 Add-Type -AssemblyName System.Drawing
 
+$repoRoot  = Split-Path $PSScriptRoot -Parent
 $imagesDir = Join-Path $PSScriptRoot "Images"
+$icoPath   = Join-Path $repoRoot "ImmichDrive\Resources\ImmichDrive.ico"
 New-Item -ItemType Directory -Force $imagesDir | Out-Null
 
-$c1 = [System.Drawing.Color]::FromArgb(255, 56, 189, 248)   # sky blue
-$c2 = [System.Drawing.Color]::FromArgb(255, 99, 102, 241)   # indigo
-$glyph = [char]0xEB9F                                        # photo/picture
+# Dark slate tile (#1d2230). The center hole is this same color so it vanishes into the tile,
+# leaving a clean opening where the five bright blades meet.
+$tile = [System.Drawing.Color]::FromArgb(255, 29, 34, 48)
 
-function Draw-Glyph($g, $rect, $fontPx) {
-    $font = New-Object System.Drawing.Font("Segoe Fluent Icons", [single]$fontPx, [System.Drawing.GraphicsUnit]::Pixel)
-    $white = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
-    $fmt = New-Object System.Drawing.StringFormat([System.Drawing.StringFormat]::GenericTypographic)
-    $fmt.Alignment = [System.Drawing.StringAlignment]::Center
-    $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $g.DrawString([string]$glyph, $font, $white, $rect, $fmt)
+# Aperture outer vertices in unit space (radius 46, centered at 0,0), as flat coord arrays.
+$Vx = @(0.0, 43.7, 27.0, -27.0, -43.7)
+$Vy = @(-46.0, -14.2, 37.2, 37.2, -14.2)
+
+# Immich logo colors, one per blade (red, amber, green, blue, pink).
+$colR = @(250, 255, 24, 30, 237)
+$colG = @(41, 180, 194, 131, 121)
+$colB = @(33, 0, 73, 247, 181)
+
+function New-AperturePath([double]$cx, [double]$cy, [double]$f) {
+    $t = 11.0
+    $Ax = @(); $Ay = @(); $Bx = @(); $By = @()
+    for ($i = 0; $i -lt 5; $i++) {
+        $p = ($i + 4) % 5; $n = ($i + 1) % 5
+        $dpx = $Vx[$p] - $Vx[$i]; $dpy = $Vy[$p] - $Vy[$i]; $lp = [math]::Sqrt($dpx * $dpx + $dpy * $dpy)
+        $dnx = $Vx[$n] - $Vx[$i]; $dny = $Vy[$n] - $Vy[$i]; $ln = [math]::Sqrt($dnx * $dnx + $dny * $dny)
+        $Bx += $Vx[$i] + $t * $dpx / $lp; $By += $Vy[$i] + $t * $dpy / $lp
+        $Ax += $Vx[$i] + $t * $dnx / $ln; $Ay += $Vy[$i] + $t * $dny / $ln
+    }
+    $gp = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $curx = $Ax[0]; $cury = $Ay[0]
+    for ($k = 1; $k -le 5; $k++) {
+        $i = $k % 5
+        $gp.AddLine([single]($cx + $curx * $f), [single]($cy + $cury * $f), [single]($cx + $Bx[$i] * $f), [single]($cy + $By[$i] * $f))
+        $c1x = $Bx[$i] + (2.0 / 3.0) * ($Vx[$i] - $Bx[$i]); $c1y = $By[$i] + (2.0 / 3.0) * ($Vy[$i] - $By[$i])
+        $c2x = $Ax[$i] + (2.0 / 3.0) * ($Vx[$i] - $Ax[$i]); $c2y = $Ay[$i] + (2.0 / 3.0) * ($Vy[$i] - $Ay[$i])
+        $gp.AddBezier(
+            [single]($cx + $Bx[$i] * $f), [single]($cy + $By[$i] * $f),
+            [single]($cx + $c1x * $f), [single]($cy + $c1y * $f),
+            [single]($cx + $c2x * $f), [single]($cy + $c2y * $f),
+            [single]($cx + $Ax[$i] * $f), [single]($cy + $Ay[$i] * $f))
+        $curx = $Ax[$i]; $cury = $Ay[$i]
+    }
+    $gp.CloseFigure()
+    return $gp
 }
 
-function New-Square([int]$size, [string]$path) {
-    $bmp = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+function Draw-Aperture($g, [double]$cx, [double]$cy, [double]$S) {
+    $f = $S / 46.0
+    $rp = New-AperturePath $cx $cy $f
+    $g.SetClip($rp)
+    for ($i = 0; $i -lt 5; $i++) {
+        $j = ($i + 1) % 5
+        $pts = New-Object 'System.Drawing.PointF[]' 3
+        $pts[0] = New-Object System.Drawing.PointF([single]$cx, [single]$cy)
+        $pts[1] = New-Object System.Drawing.PointF([single]($cx + $Vx[$i] * $f), [single]($cy + $Vy[$i] * $f))
+        $pts[2] = New-Object System.Drawing.PointF([single]($cx + $Vx[$j] * $f), [single]($cy + $Vy[$j] * $f))
+        $b = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, $colR[$i], $colG[$i], $colB[$i]))
+        $g.FillPolygon($b, $pts); $b.Dispose()
+    }
+    $g.ResetClip(); $rp.Dispose()
+    $hb = New-Object System.Drawing.SolidBrush($tile)
+    $hr = 14.0 * $f
+    $g.FillEllipse($hb, [single]($cx - $hr), [single]($cy - $hr), [single]($hr * 2), [single]($hr * 2))
+    $hb.Dispose()
+}
+
+# Render the icon once at high resolution; every asset is a high-quality downscale of this
+# (supersampling smooths the clipped aperture edge, which GDI+ region-clipping aliases).
+function New-Master([int]$M) {
+    $bmp = New-Object System.Drawing.Bitmap($M, $M, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-    $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $g.Clear([System.Drawing.Color]::Transparent)
-    $rect = New-Object System.Drawing.Rectangle(0, 0, $size, $size)
-    $brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush($rect, $c1, $c2, 55.0)
-    $g.FillRectangle($brush, $rect)
-    $rectF = New-Object System.Drawing.RectangleF(0, 0, [single]$size, [single]$size)
-    Draw-Glyph $g $rectF ([single]($size * 0.52))
+    $rad = [double]$M * 0.18; $d = $rad * 2
+    $tp = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $tp.AddArc(0, 0, $d, $d, 180, 90)
+    $tp.AddArc($M - $d, 0, $d, $d, 270, 90)
+    $tp.AddArc($M - $d, $M - $d, $d, $d, 0, 90)
+    $tp.AddArc(0, $M - $d, $d, $d, 90, 90)
+    $tp.CloseFigure()
+    $tb = New-Object System.Drawing.SolidBrush($tile)
+    $g.FillPath($tb, $tp); $tb.Dispose(); $tp.Dispose()
+    Draw-Aperture $g ([double]$M / 2) ([double]$M / 2) ([double]$M * 0.34)
     $g.Dispose()
-    $bmp.Save((Join-Path $imagesDir $path), [System.Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
-    Write-Output "  $path ($size x $size)"
+    return $bmp
 }
 
-function New-Splash([int]$w, [int]$h, [string]$path) {
+function New-Resized($master, [int]$w, [int]$h) {
     $bmp = New-Object System.Drawing.Bitmap($w, $h, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-    $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $g.Clear([System.Drawing.Color]::Transparent)
-    $badge = [int]($h * 0.5)
-    $bx = [int](($w - $badge) / 2); $by = [int](($h - $badge) / 2)
-    $rect = New-Object System.Drawing.Rectangle($bx, $by, $badge, $badge)
-    $radius = [int]($badge * 0.22); $d = $radius * 2
-    $path2 = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $path2.AddArc($rect.X, $rect.Y, $d, $d, 180, 90)
-    $path2.AddArc($rect.Right - $d, $rect.Y, $d, $d, 270, 90)
-    $path2.AddArc($rect.Right - $d, $rect.Bottom - $d, $d, $d, 0, 90)
-    $path2.AddArc($rect.X, $rect.Bottom - $d, $d, $d, 90, 90)
-    $path2.CloseFigure()
-    $brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush($rect, $c1, $c2, 55.0)
-    $g.FillPath($brush, $path2)
-    $rectF = New-Object System.Drawing.RectangleF([single]$bx, [single]$by, [single]$badge, [single]$badge)
-    Draw-Glyph $g $rectF ([single]($badge * 0.52))
+    $g.DrawImage($master, 0, 0, $w, $h)
     $g.Dispose()
-    $bmp.Save((Join-Path $imagesDir $path), [System.Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
-    Write-Output "  $path ($w x $h)"
+    return $bmp
 }
 
+function Save-Square($master, [int]$size, [string]$name) {
+    $bmp = New-Resized $master $size $size
+    $bmp.Save((Join-Path $imagesDir $name), [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+    Write-Output "  $name ($size x $size)"
+}
+
+function Save-Splash($master, [int]$w, [int]$h, [string]$name) {
+    $bmp = New-Object System.Drawing.Bitmap($w, $h, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    $g.Clear([System.Drawing.Color]::Transparent)
+    $badge = [int]($h * 0.5); $bx = [int](($w - $badge) / 2); $by = [int](($h - $badge) / 2)
+    $g.DrawImage($master, $bx, $by, $badge, $badge)
+    $g.Dispose()
+    $bmp.Save((Join-Path $imagesDir $name), [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+    Write-Output "  $name ($w x $h)"
+}
+
+function Save-Ico($master, [int[]]$sizes, [string]$path) {
+    $blobs = @()
+    foreach ($s in $sizes) {
+        $bmp = New-Resized $master $s $s
+        $ms = New-Object System.IO.MemoryStream
+        $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+        $blobs += ,($ms.ToArray())
+        $ms.Dispose(); $bmp.Dispose()
+    }
+    $fs = [System.IO.File]::Create($path)
+    $bw = New-Object System.IO.BinaryWriter($fs)
+    $bw.Write([uint16]0); $bw.Write([uint16]1); $bw.Write([uint16]$sizes.Count)
+    $offset = 6 + 16 * $sizes.Count
+    for ($i = 0; $i -lt $sizes.Count; $i++) {
+        $s = $sizes[$i]; $len = $blobs[$i].Length
+        $wb = if ($s -ge 256) { 0 } else { $s }
+        $bw.Write([byte]$wb); $bw.Write([byte]$wb); $bw.Write([byte]0); $bw.Write([byte]0)
+        $bw.Write([uint16]1); $bw.Write([uint16]32)
+        $bw.Write([uint32]$len); $bw.Write([uint32]$offset)
+        $offset += $len
+    }
+    foreach ($b in $blobs) { $bw.Write($b) }
+    $bw.Flush(); $bw.Close(); $fs.Close()
+    Write-Output "  ImmichDrive.ico ($($sizes -join ', '))"
+}
+
+Write-Output "Rendering master icon..."
+$master = New-Master 1024
+
 Write-Output "Generating MSIX images:"
-New-Square 50  "StoreLogo.png"
-New-Square 44  "Square44x44Logo.png"
-New-Square 88  "Square44x44Logo.scale-200.png"
-New-Square 24  "Square44x44Logo.targetsize-24_altform-unplated.png"
-New-Square 150 "Square150x150Logo.png"
-New-Square 300 "Square150x150Logo.scale-200.png"
-New-Splash 620 300  "SplashScreen.png"
-New-Splash 1240 600 "SplashScreen.scale-200.png"
+Save-Square $master 50  "StoreLogo.png"
+Save-Square $master 44  "Square44x44Logo.png"
+Save-Square $master 88  "Square44x44Logo.scale-200.png"
+Save-Square $master 24  "Square44x44Logo.targetsize-24_altform-unplated.png"
+Save-Square $master 150 "Square150x150Logo.png"
+Save-Square $master 300 "Square150x150Logo.scale-200.png"
+Save-Splash $master 620 300  "SplashScreen.png"
+Save-Splash $master 1240 600 "SplashScreen.scale-200.png"
+
+Write-Output "Generating app icon:"
+Save-Ico $master @(16, 24, 32, 48, 64, 128, 256) $icoPath
+
+$master.Dispose()
 Write-Output "Done."
