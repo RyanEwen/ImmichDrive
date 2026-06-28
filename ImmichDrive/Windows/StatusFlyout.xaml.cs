@@ -124,6 +124,16 @@ public sealed partial class StatusFlyout : Window
         Close();
     }
 
+    private void OpenImmichButton_Click(object sender, RoutedEventArgs e)
+    {
+        string url = SettingsManager.Current.ServerUrl;
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+        }
+        Close();
+    }
+
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
         var w = SettingsWindow.GetCurrent() ?? new SettingsWindow();

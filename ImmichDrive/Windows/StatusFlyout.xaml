@@ -19,12 +19,18 @@
                 <Image x:Name="Icon" Width="22" Height="22" VerticalAlignment="Center" />
                 <TextBlock Text="ImmichDrive" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
             </StackPanel>
-            <Button Grid.Column="1" x:Name="RefreshButton" Click="RefreshButton_Click"
-                    Padding="7" MinWidth="0" VerticalAlignment="Center"
-                    Background="Transparent" BorderBrush="Transparent"
-                    ToolTipService.ToolTip="Refresh now">
-                <FontIcon Glyph="&#xE72C;" FontSize="14" />
-            </Button>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                <Button x:Name="RefreshButton" Click="RefreshButton_Click"
+                        Padding="7" MinWidth="0" Background="Transparent" BorderBrush="Transparent"
+                        ToolTipService.ToolTip="Refresh now">
+                    <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                </Button>
+                <Button x:Name="SettingsButton" Click="SettingsButton_Click"
+                        Padding="7" MinWidth="0" Background="Transparent" BorderBrush="Transparent"
+                        ToolTipService.ToolTip="Settings">
+                    <FontIcon Glyph="&#xE713;" FontSize="14" />
+                </Button>
+            </StackPanel>
         </Grid>
 
         <StackPanel Grid.Row="1" Spacing="8">
@@ -35,7 +41,7 @@
         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
             <Button x:Name="OpenFolderButton" Click="OpenFolderButton_Click"
                     Style="{StaticResource AccentButtonStyle}" Content="Open drive folder" />
-            <Button x:Name="SettingsButton" Click="SettingsButton_Click" Content="Settings" />
+            <Button x:Name="OpenImmichButton" Click="OpenImmichButton_Click" Content="Open Immich" />
         </StackPanel>
     </Grid>
 </Window>
