@@ -45,7 +45,7 @@ and freeing space dehydrates it back to a placeholder.
 
 ## Setup (minimal)
 
-1. Install the signed MSIX (or from the Store).
+1. Install **ImmichDrive** from the [Microsoft Store](https://apps.microsoft.com/detail/9MWC6165N7DH).
 2. Open **ImmichDrive** and enter:
    - your **Immich server URL** (e.g. `https://photos.example.com`)
    - an **API key** (Immich → *Account Settings → API Keys → New API Key*).
