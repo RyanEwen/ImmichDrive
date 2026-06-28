@@ -1,5 +1,6 @@
 using ImmichDrive.Classes.Settings;
 using System.IO;
+using System.Threading;
 
 namespace ImmichDrive.Services;
 
@@ -24,6 +25,15 @@ public sealed class DriveManager
     private CloudProviderService? _provider;
     private AssetIndex? _index;
     private CancellationTokenSource? _populateCts;
+
+    // Auto-refresh: poll the newest month often (catch new phone photos fast) and the whole
+    // timeline occasionally. A single lock serializes all populate work so polls never overlap
+    // each other or the initial/manual populate.
+    private static readonly TimeSpan FastInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan SlowInterval = TimeSpan.FromMinutes(15);
+    private readonly SemaphoreSlim _populateLock = new(1, 1);
+    private Timer? _fastTimer;
+    private Timer? _slowTimer;
 
     public DriveStatus Status { get; private set; } = DriveStatus.Disconnected;
     public string? StatusDetail { get; private set; }
@@ -94,7 +104,9 @@ public sealed class DriveManager
             // Populate in the background; the drive is usable as buckets land (newest first).
             _populateCts?.Cancel();
             _populateCts = new CancellationTokenSource();
-            _ = PopulateAsync(_populateCts.Token);
+            _ = RunPopulate(newestOnly: false, skipIfBusy: false, _populateCts.Token);
+
+            StartAutoRefresh();
         }
         catch (Exception ex)
         {
@@ -103,29 +115,55 @@ public sealed class DriveManager
         }
     }
 
-    private async Task PopulateAsync(CancellationToken ct)
+    private void StartAutoRefresh()
     {
-        if (_client == null || _index == null) return;
-        try
-        {
-            var s = SettingsManager.Current;
-            var pop = new PlaceholderPopulator(_client, _index, s.EffectiveSyncRootPath);
-            var progress = new Progress<(int, int)>(p => { Progress = p; StatusChanged?.Invoke(); });
-            await pop.PopulateAsync(progress, ct);
-            s.LastSyncUtc = DateTimeOffset.UtcNow;
-            SettingsManager.SaveSettings();
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { Logger.Error(ex, "Populate failed"); }
+        _fastTimer?.Dispose();
+        _slowTimer?.Dispose();
+        _fastTimer = new Timer(_ => { _ = RunPopulate(newestOnly: true, skipIfBusy: true, CancellationToken.None); },
+            null, FastInterval, FastInterval);
+        _slowTimer = new Timer(_ => { _ = RunPopulate(newestOnly: false, skipIfBusy: true, CancellationToken.None); },
+            null, SlowInterval, SlowInterval);
     }
 
-    /// <summary>Re-runs population against the server (e.g. tray "Refresh").</summary>
+    /// <summary>
+    /// Runs a populate. <paramref name="newestOnly"/> refreshes just the newest month bucket;
+    /// otherwise the whole timeline. <paramref name="skipIfBusy"/> (timers) bails if another
+    /// populate is already running, so polls never stack up.
+    /// </summary>
+    private async Task RunPopulate(bool newestOnly, bool skipIfBusy, CancellationToken ct)
+    {
+        if (_client == null || _index == null) return;
+
+        if (skipIfBusy) { if (!await _populateLock.WaitAsync(0, ct)) return; }
+        else { await _populateLock.WaitAsync(ct); }
+
+        try
+        {
+            var pop = new PlaceholderPopulator(_client, _index, SettingsManager.Current.EffectiveSyncRootPath);
+            if (newestOnly)
+            {
+                await pop.PopulateNewestAsync(ct);
+            }
+            else
+            {
+                var progress = new Progress<(int, int)>(p => { Progress = p; StatusChanged?.Invoke(); });
+                await pop.PopulateAsync(progress, ct);
+                SettingsManager.Current.LastSyncUtc = DateTimeOffset.UtcNow;
+                SettingsManager.SaveSettings();
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Logger.Warn(ex, "Populate failed (newestOnly={0})", newestOnly); }
+        finally { _populateLock.Release(); }
+    }
+
+    /// <summary>Re-runs full population against the server (e.g. tray "Refresh").</summary>
     public void Refresh()
     {
         if (Status != DriveStatus.Online) return;
         _populateCts?.Cancel();
         _populateCts = new CancellationTokenSource();
-        _ = PopulateAsync(_populateCts.Token);
+        _ = RunPopulate(newestOnly: false, skipIfBusy: false, _populateCts.Token);
     }
 
     /// <summary>
@@ -175,6 +213,8 @@ public sealed class DriveManager
 
     public void Disconnect()
     {
+        _fastTimer?.Dispose(); _fastTimer = null;
+        _slowTimer?.Dispose(); _slowTimer = null;
         _populateCts?.Cancel();
         _provider?.Disconnect();
         _provider = null;

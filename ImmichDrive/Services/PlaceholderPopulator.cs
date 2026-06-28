@@ -35,7 +35,7 @@ public sealed class PlaceholderPopulator
         _syncRootPath = syncRootPath;
     }
 
-    /// <summary>Populates placeholders. Reports (processed, totalApprox) as it goes.</summary>
+    /// <summary>Full populate over the whole timeline. Reports (processed, totalApprox) as it goes.</summary>
     public async Task PopulateAsync(IProgress<(int Done, int Total)>? progress = null, CancellationToken ct = default)
     {
         _index.EnsureCreated();
@@ -49,75 +49,93 @@ public sealed class PlaceholderPopulator
         foreach (var bucket in buckets) // newest first
         {
             ct.ThrowIfCancellationRequested();
-            List<ImmichAsset> assets;
-            try { assets = await _client.GetBucketAssetsAsync(bucket.Raw, ct); }
-            catch (Exception ex) { Logger.Warn(ex, "Bucket {0} failed", bucket.Raw); continue; }
-
-            var localMonth = bucket.Date.ToLocalTime();
-            string monthActual = MonthFolderName(localMonth);
-            string monthAbs = EnsureFolder(monthActual);
-            var monthUsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            // Partition into already-known (self-heal only) and brand-new (needs enrich + create).
-            var newAssets = new List<ImmichAsset>();
-            foreach (var asset in assets)
-            {
-                ct.ThrowIfCancellationRequested();
-                var rows = _index.RowsForAsset(asset.Id);
-                if (rows.Count == 0) { newAssets.Add(asset); continue; }
-
-                // Known — recreate any placeholder that went missing (e.g. after a re-register),
-                // and reserve its name so new assets don't collide with it.
-                foreach (var (rel, size, isVideo) in rows)
-                {
-                    string fn = Path.GetFileName(rel);
-                    monthUsed.Add(fn);
-
-                    string abs = Path.Combine(_syncRootPath, rel);
-                    if (File.Exists(abs)) continue;
-                    try
-                    {
-                        string dir = Path.GetDirectoryName(abs)!;
-                        Directory.CreateDirectory(dir);
-                        CreatePlaceholder(dir, fn, asset.Id, size, isVideo, asset.FileCreatedAt);
-                    }
-                    catch (Exception ex) { Logger.Warn(ex, "Re-create failed for {0}", rel); }
-                }
-                progress?.Report((++done, total));
-            }
-
-            if (newAssets.Count == 0) continue;
-
-            // Enrich new assets (real size + name — the timeline payload has neither) concurrently.
-            using (var sem = new SemaphoreSlim(EnrichConcurrency))
-            {
-                await Task.WhenAll(newAssets.Select(async a =>
-                {
-                    await sem.WaitAsync(ct);
-                    try { await _client.EnrichAsync(a, ct); } finally { sem.Release(); }
-                }));
-            }
-
-            var indexRows = new List<(string, string, bool, long)>();
-            foreach (var asset in newAssets)
-            {
-                ct.ThrowIfCancellationRequested();
-                try
-                {
-                    string baseName = asset.BuildFileName();
-                    string fileName = Disambiguate(baseName, monthUsed);
-                    string monthRel = Path.Combine(monthActual, fileName);
-                    CreatePlaceholder(monthAbs, fileName, asset.Id, asset.FileSizeBytes, asset.IsVideo, asset.FileCreatedAt);
-                    indexRows.Add((monthRel, asset.Id, asset.IsVideo, asset.FileSizeBytes));
-                }
-                catch (Exception ex) { Logger.Warn(ex, "Placeholder failed for asset {0}", asset.Id); }
-                progress?.Report((++done, total));
-            }
-
-            if (indexRows.Count > 0) _index.UpsertMany(indexRows);
+            await ProcessBucketAsync(bucket, ct, () => progress?.Report((++done, total)));
         }
 
         Logger.Info("Populate complete: {0} processed, {1} indexed, across {2} buckets", done, _index.Count(), buckets.Count);
+    }
+
+    /// <summary>
+    /// Lightweight refresh of just the newest month bucket — picks up freshly-added photos quickly
+    /// without re-walking the whole timeline. Incremental (skips already-indexed assets).
+    /// </summary>
+    public async Task PopulateNewestAsync(CancellationToken ct = default)
+    {
+        _index.EnsureCreated();
+        Directory.CreateDirectory(_syncRootPath);
+        var buckets = await _client.GetBucketsAsync(ct);
+        if (buckets.Count > 0) await ProcessBucketAsync(buckets[0], ct, null);
+    }
+
+    /// <summary>Processes one month bucket: self-heals known placeholders, creates brand-new ones.</summary>
+    private async Task ProcessBucketAsync(ImmichClient.BucketRef bucket, CancellationToken ct, Action? onAsset)
+    {
+        List<ImmichAsset> assets;
+        try { assets = await _client.GetBucketAssetsAsync(bucket.Raw, ct); }
+        catch (Exception ex) { Logger.Warn(ex, "Bucket {0} failed", bucket.Raw); return; }
+
+        var localMonth = bucket.Date.ToLocalTime();
+        string monthActual = MonthFolderName(localMonth);
+        string monthAbs = EnsureFolder(monthActual);
+        var monthUsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Partition into already-known (self-heal only) and brand-new (needs enrich + create).
+        var newAssets = new List<ImmichAsset>();
+        foreach (var asset in assets)
+        {
+            ct.ThrowIfCancellationRequested();
+            var rows = _index.RowsForAsset(asset.Id);
+            if (rows.Count == 0) { newAssets.Add(asset); continue; }
+
+            // Known — recreate any placeholder that went missing (e.g. after a re-register),
+            // and reserve its name so new assets don't collide with it.
+            foreach (var (rel, size, isVideo) in rows)
+            {
+                string fn = Path.GetFileName(rel);
+                monthUsed.Add(fn);
+
+                string abs = Path.Combine(_syncRootPath, rel);
+                if (File.Exists(abs)) continue;
+                try
+                {
+                    string dir = Path.GetDirectoryName(abs)!;
+                    Directory.CreateDirectory(dir);
+                    CreatePlaceholder(dir, fn, asset.Id, size, isVideo, asset.FileCreatedAt);
+                }
+                catch (Exception ex) { Logger.Warn(ex, "Re-create failed for {0}", rel); }
+            }
+            onAsset?.Invoke();
+        }
+
+        if (newAssets.Count == 0) return;
+
+        // Enrich new assets (real size + name — the timeline payload has neither) concurrently.
+        using (var sem = new SemaphoreSlim(EnrichConcurrency))
+        {
+            await Task.WhenAll(newAssets.Select(async a =>
+            {
+                await sem.WaitAsync(ct);
+                try { await _client.EnrichAsync(a, ct); } finally { sem.Release(); }
+            }));
+        }
+
+        var indexRows = new List<(string, string, bool, long)>();
+        foreach (var asset in newAssets)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                string baseName = asset.BuildFileName();
+                string fileName = Disambiguate(baseName, monthUsed);
+                string monthRel = Path.Combine(monthActual, fileName);
+                CreatePlaceholder(monthAbs, fileName, asset.Id, asset.FileSizeBytes, asset.IsVideo, asset.FileCreatedAt);
+                indexRows.Add((monthRel, asset.Id, asset.IsVideo, asset.FileSizeBytes));
+            }
+            catch (Exception ex) { Logger.Warn(ex, "Placeholder failed for asset {0}", asset.Id); }
+            onAsset?.Invoke();
+        }
+
+        if (indexRows.Count > 0) _index.UpsertMany(indexRows);
     }
 
     /// <summary>Readable month folder name, e.g. "2026-06 June" (the yyyy-MM prefix keeps it sortable).</summary>

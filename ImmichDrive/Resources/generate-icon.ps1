@@ -1,64 +1,92 @@
-# Generates Resources\ImmichDrive.ico — a gradient badge with a photo/cloud glyph.
-# Run with: powershell.exe -NoProfile -File generate-icon.ps1
-# ASCII only (Windows PowerShell 5.1 reads BOM-less .ps1 as ANSI).
+# Generates Resources\ImmichDrive.ico — a multi-resolution icon (16..256) so Windows uses a
+# crisply-rendered small image in the tray instead of downscaling a single 256px bitmap.
+# Bold sun + mountains "photo" motif on a blue->indigo gradient badge so it reads at 16px.
+# Run with: powershell.exe -NoProfile -File generate-icon.ps1   (ASCII only)
 Add-Type -AssemblyName System.Drawing
 
-$outDir = $PSScriptRoot
+$outDir  = $PSScriptRoot
 $icoPath = Join-Path $outDir "ImmichDrive.ico"
 
 $c1 = [System.Drawing.Color]::FromArgb(255, 56, 189, 248)   # sky blue
 $c2 = [System.Drawing.Color]::FromArgb(255, 99, 102, 241)   # indigo
-$glyph = [char]0xEB9F                                        # Segoe Fluent: photo/picture
 
-function New-Png([int]$size) {
-    $bmp = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+function New-RoundedPath([System.Drawing.RectangleF]$r, [single]$radius) {
+    $d = $radius * 2
+    $p = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $p.AddArc($r.X, $r.Y, $d, $d, 180, 90)
+    $p.AddArc($r.Right - $d, $r.Y, $d, $d, 270, 90)
+    $p.AddArc($r.Right - $d, $r.Bottom - $d, $d, $d, 0, 90)
+    $p.AddArc($r.X, $r.Bottom - $d, $d, $d, 90, 90)
+    $p.CloseFigure()
+    return $p
+}
+
+function New-IconPng([int]$S) {
+    $bmp = New-Object System.Drawing.Bitmap($S, $S, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-    $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $g.Clear([System.Drawing.Color]::Transparent)
 
-    # Rounded-rectangle gradient badge.
-    $pad = [int]($size * 0.06)
-    $rect = New-Object System.Drawing.Rectangle($pad, $pad, ($size - 2 * $pad), ($size - 2 * $pad))
-    $radius = [int]($size * 0.22); $d = $radius * 2
-    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $path.AddArc($rect.X, $rect.Y, $d, $d, 180, 90)
-    $path.AddArc($rect.Right - $d, $rect.Y, $d, $d, 270, 90)
-    $path.AddArc($rect.Right - $d, $rect.Bottom - $d, $d, $d, 0, 90)
-    $path.AddArc($rect.X, $rect.Bottom - $d, $d, $d, 90, 90)
-    $path.CloseFigure()
+    # Gradient rounded-rect badge (nearly full-bleed for max area at small sizes).
+    $pad = [single]([math]::Max(0.5, $S * 0.03))
+    $rect = New-Object System.Drawing.RectangleF($pad, $pad, ($S - 2 * $pad), ($S - 2 * $pad))
+    $radius = [single]($S * ([double]$(if ($S -le 24) { 0.16 } else { 0.22 })))
+    $badge = New-RoundedPath $rect $radius
     $brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush($rect, $c1, $c2, 55.0)
-    $g.FillPath($brush, $path)
+    $g.FillPath($brush, $badge)
 
-    # Centered glyph.
-    $font = New-Object System.Drawing.Font("Segoe Fluent Icons", [single]($size * 0.5), [System.Drawing.GraphicsUnit]::Pixel)
+    # Keep the motif inside the badge.
+    $g.SetClip($badge)
     $white = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
-    $fmt = New-Object System.Drawing.StringFormat
-    $fmt.Alignment = [System.Drawing.StringAlignment]::Center
-    $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $rectF = New-Object System.Drawing.RectangleF(0, 0, [single]$size, [single]$size)
-    $g.DrawString([string]$glyph, $font, $white, $rectF, $fmt)
-    $g.Dispose()
 
+    # Sun.
+    $sunR = [single]($S * 0.12)
+    $sunX = [single]($S * 0.34); $sunY = [single]($S * 0.37)
+    $g.FillEllipse($white, $sunX - $sunR, $sunY - $sunR, $sunR * 2, $sunR * 2)
+
+    # Mountains (filled to the badge bottom; clip trims the overflow).
+    $pts = @(
+        (New-Object System.Drawing.PointF([single]($S * 0.04), [single]($S * 0.82))),
+        (New-Object System.Drawing.PointF([single]($S * 0.36), [single]($S * 0.46))),
+        (New-Object System.Drawing.PointF([single]($S * 0.52), [single]($S * 0.62))),
+        (New-Object System.Drawing.PointF([single]($S * 0.70), [single]($S * 0.40))),
+        (New-Object System.Drawing.PointF([single]($S * 0.98), [single]($S * 0.82))),
+        (New-Object System.Drawing.PointF([single]($S * 0.98), [single]($S * 1.02))),
+        (New-Object System.Drawing.PointF([single]($S * 0.04), [single]($S * 1.02)))
+    )
+    $g.FillPolygon($white, [System.Drawing.PointF[]]$pts)
+
+    $g.ResetClip(); $g.Dispose()
     $ms = New-Object System.IO.MemoryStream
     $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
-    return $ms.ToArray()
+    return ,$ms.ToArray()
 }
 
-# Build a PNG-in-ICO with a single 256x256 entry (supported by modern Windows).
-# Assemble the bytes explicitly to avoid BinaryWriter overload pitfalls.
-[byte[]]$png = New-Png 256
-$hdr = New-Object 'System.Collections.Generic.List[byte]'
-function Add-U16([int]$v) { $script:hdr.AddRange([System.BitConverter]::GetBytes([uint16]$v)) }
-function Add-U32([int64]$v) { $script:hdr.AddRange([System.BitConverter]::GetBytes([uint32]$v)) }
-Add-U16 0; Add-U16 1; Add-U16 1          # reserved, type=icon, count=1
-$hdr.Add([byte]0); $hdr.Add([byte]0)     # width/height (0 = 256)
-$hdr.Add([byte]0); $hdr.Add([byte]0)     # colors, reserved
-Add-U16 1; Add-U16 32                     # planes, bitcount
-Add-U32 $png.Length                       # bytes in resource
-Add-U32 22                                # image offset (6 + 16)
+# Build a PNG-compressed multi-image ICO (supported by Windows Vista+ at every size).
+$sizes = @(16, 20, 24, 32, 40, 48, 64, 128, 256)
+$pngs = foreach ($s in $sizes) { ,(New-IconPng $s) }
+
+$header = New-Object 'System.Collections.Generic.List[byte]'
+function Add-U16([int]$v) { $script:header.AddRange([System.BitConverter]::GetBytes([uint16]$v)) }
+function Add-U32([int64]$v) { $script:header.AddRange([System.BitConverter]::GetBytes([uint32]$v)) }
+
+Add-U16 0; Add-U16 1; Add-U16 $sizes.Count          # reserved, type=icon, image count
+$offset = 6 + 16 * $sizes.Count                       # data starts after dir + entries
+for ($i = 0; $i -lt $sizes.Count; $i++) {
+    $s = $sizes[$i]; $len = $pngs[$i].Length
+    $header.Add([byte]($(if ($s -ge 256) { 0 } else { $s })))   # width  (0 = 256)
+    $header.Add([byte]($(if ($s -ge 256) { 0 } else { $s })))   # height (0 = 256)
+    $header.Add([byte]0); $header.Add([byte]0)                  # colors, reserved
+    Add-U16 1; Add-U16 32                                       # planes, bitcount
+    Add-U32 $len                                                # bytes in resource
+    Add-U32 $offset                                             # offset to image data
+    $offset += $len
+}
+
 $all = New-Object 'System.Collections.Generic.List[byte]'
-$all.AddRange($hdr); $all.AddRange($png)
+$all.AddRange($header)
+foreach ($p in $pngs) { $all.AddRange($p) }
 [System.IO.File]::WriteAllBytes($icoPath, $all.ToArray())
-Write-Output "Wrote $icoPath ($($all.Count) bytes total, $($png.Length) PNG)"
+Write-Output "Wrote $icoPath ($($all.Count) bytes, $($sizes.Count) sizes: $($sizes -join ', '))"
