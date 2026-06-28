@@ -40,36 +40,74 @@ alive while connected** — this is why the tray app is resident.
 
 ## 3. Create placeholders
 
-For each asset (and each directory), fill a `CF_PLACEHOLDER_CREATE_INFO`:
+`PlaceholderPopulator` walks the timeline (newest bucket first) and lays down placeholders.
 
-- `RelativeFileName` — e.g. `2026\06-June\2026-06-27_142530_IMG_1234.jpg`.
-- `FsMetadata.FileSize` — original size (from `/assets/{id}` exif `fileSizeInByte`, or 0 if
-  unknown; a non-zero size is needed for correct Explorer display + range hydration).
-- `FsMetadata.BasicInfo` — `FILE_BASIC_INFO` timestamps from `fileCreatedAt`; attributes
-  `FILE_ATTRIBUTE_NORMAL` (files) / `FILE_ATTRIBUTE_DIRECTORY` (folders).
-- `FileIdentity` — pointer to UTF‑8 **Immich asset id** bytes; `FileIdentityLength` set.
-  This is how the hydration callback knows which asset to fetch.
+**Folder layout (under the sync root):**
+
+- **Month folders** `yyyy-MM MMMM` (e.g. `2026-06 June`) — one per timeline bucket. The name
+  derives from the bucket's **own** year/month; do **not** convert the bucket time to local
+  time (that rolled the month boundary backwards for negative UTC offsets, landing June's
+  assets in a "May" folder — `MonthFolderName(bucket.Date)`).
+- `Albums\<album name>\…` — mirrors Immich albums.
+- `Favorites\…` — flat folder of favorited assets.
+- `Partners\<name>\<month>\…` — each partner's shared library, same month layout.
+- `Upload\` — the one **writable** folder (one-way Immich → PC sync otherwise; the rest of the
+  tree is read-only via a deny ACE — see `read-only.md`).
+
+There is **no `Recent` folder** (removed); `RemoveLegacyRecentFolder` cleans up any stale one.
+
+**Filenames** are the clean original Immich filename (`asset.BuildFileName()`), sanitized, with
+`" (2)"`, `" (3)"`, … appended on collision (`Disambiguate`). They are **not** timestamp-prefixed.
+Instead the asset's capture time (`fileCreatedAt`) is stamped on the placeholder so Explorer's
+sort-by-date (descending) surfaces newest first.
+
+For each asset fill a `CF_PLACEHOLDER_CREATE_INFO` (see `CreatePlaceholder`):
+
+- `RelativeFileName` — the file name only (it's relative to the `baseDir` arg, i.e. the month/
+  album folder), e.g. `IMG_1234.jpg`.
+- `FsMetadata.FileSize` — original size (enriched from `/assets/{id}` `exifInfo.fileSizeInByte`,
+  or 0 if unknown; a non-zero size is needed for correct Explorer display + range hydration).
+- `FsMetadata.BasicInfo` — `FILE_BASIC_INFO` with all four timestamps set from `fileCreatedAt`;
+  attribute `FILE_ATTRIBUTE_NORMAL` (0x80).
+- `FileIdentity` — pointer to UTF‑8 **Immich asset id** bytes; `FileIdentityLength` set. This is
+  how the hydration callback knows which asset to fetch.
 - `Flags` — `CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC` (so they start "in sync, dehydrated").
 
-Call `CfCreatePlaceholders(baseDir, infos, count, CF_CREATE_FLAG_NONE, out entriesProcessed)`.
-Create parent directory placeholders first (or ensure the directory exists). We also write a
-row to the SQLite `AssetIndex` (relativePath ⇄ assetId) for the thumbnail extension.
+Call `CfCreatePlaceholders(baseDir, infos, 1, CF_CREATE_FLAG_NONE, out entriesProcessed)` (the
+folder is created with a plain `Directory.CreateDirectory` first, not as a placeholder). The
+"already exists" HRESULT `0x800700B7` is ignored. We also write a row to the SQLite `AssetIndex`
+(`rel_path` ⇄ `asset_id`, plus `is_video`/`size`) for the thumbnail extension and for
+self-healing re-creation without a network round-trip.
+
+Populate is **incremental and self-healing**: already-indexed assets are skipped (only re-created
+from the stored size if their placeholder went missing), and a `PruneTimeline` pass removes
+placeholders whose asset no longer appears in the timeline — but only when every bucket fetch
+succeeded, so a transient network error can't wipe the library.
+
+**Auto-refresh** (`DriveManager`): the newest month bucket is re-polled every ~1 min
+(`PopulateNewestAsync`) to catch freshly-synced phone photos fast, and the whole library every
+~15 min (`PopulateAsync`). Runs are serialized by a lock — a timer tick bails if a populate is
+already in flight.
 
 ## 4. Hydration (FETCH_DATA)
 
-The callback gets `CF_CALLBACK_INFO` (has `FileIdentity`, `ConnectionKey`, `TransferKey`,
-`FileSize`) and `CF_CALLBACK_PARAMETERS.FetchData` (`RequiredFileOffset`, `RequiredLength`,
-`OptionalFileOffset`, `OptionalLength`). Steps:
+The callback (`CloudProviderService.OnFetchData`) gets `CF_CALLBACK_INFO` (has `FileIdentity`,
+`ConnectionKey`, `TransferKey`, `RequestKey`, `FileSize`) and `CF_CALLBACK_PARAMETERS_FETCHDATA`
+(`RequiredFileOffset`, `RequiredLength`, `OptionalFileOffset`, `OptionalLength`). The callback
+itself returns promptly and offloads the work to a `Task`. Steps:
 
-1. Decode `FileIdentity` → asset id.
-2. `GET /api/assets/{id}/original` with `Range: bytes=offset-...` (or full).
-3. Loop reading the HTTP stream; for each chunk build a `CF_OPERATION_INFO`
-   (`Type = CF_OPERATION_TYPE_TRANSFER_DATA`, `ConnectionKey`, `TransferKey`) and a
-   `CF_OPERATION_PARAMETERS.TransferData` (`Buffer`, `Offset`, `Length`, `CompletionStatus =
-   STATUS_SUCCESS`) and call `CfExecute(opInfo, ref opParams)`.
-4. On error, transfer with `CompletionStatus = STATUS_UNSUCCESSFUL` so the open fails cleanly.
+1. Decode `FileIdentity` → UTF‑8 **Immich asset id** (`ReadFileIdentity`, length-bounded).
+2. `GET /api/assets/{id}/original` with `Range: bytes=offset-…` for the required slice.
+3. Loop reading the HTTP stream in 1 MiB chunks; for each chunk build a `CF_OPERATION_INFO`
+   (`Type = CF_OPERATION_TYPE_TRANSFER_DATA`, `ConnectionKey`, `TransferKey`, `RequestKey`) and a
+   `CF_OPERATION_PARAMETERS_TRANSFERDATA` (`Buffer`, `Offset`, `Length`, `CompletionStatus =
+   STATUS_SUCCESS`) and call `CfExecute(in opInfo, ref opParams)`.
+4. On error (or a short read), transfer with `CompletionStatus = STATUS_UNSUCCESSFUL` so the open
+   fails cleanly instead of hanging.
 
-Honor cancellation: if a `CANCEL_FETCH_DATA` arrives for the same `TransferKey`, stop the loop.
+A `CF_CALLBACK_TYPE_CANCEL_FETCH_DATA` registration exists (`OnCancelFetchData`); it is currently
+a no-op stub — a production build would signal the matching in-flight transfer (keyed by
+`TransferKey`) to stop.
 
 ## 5. Dehydration / cleanup
 
@@ -82,6 +120,7 @@ root and may delete the local placeholder tree (no originals are stored, so noth
 - All cfapi structs must match `cfapi.h` packing exactly — verify on-device; a wrong offset
   silently corrupts hydration.
 - `CfCreatePlaceholders` `RelativeFileName` is relative to the `baseDirectoryPath` argument,
-  not the sync root — pass the sync root for top-level, or the parent dir for nesting.
-- Re-running populate must be idempotent: skip assets already present (check the index), and
-  use `CfUpdatePlaceholders` / `CfSetInSyncState` rather than recreating.
+  not the sync root — we pass the parent (month/album) folder and a bare file name.
+- Re-running populate is idempotent by checking the index first and skipping known assets;
+  re-creating a placeholder that already exists is harmless (the `0x800700B7` "already exists"
+  HRESULT is ignored), so missing placeholders self-heal without `CfUpdatePlaceholders`.

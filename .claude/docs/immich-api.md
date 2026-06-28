@@ -24,32 +24,45 @@ verify the key, so prefer `users/me`.)
    server matches the bucket key literally). `GetBucketsAsync` returns a `BucketRef(Raw, Date,
    Count)`; `GetBucketAssetsAsync` takes the **raw** string. (This was the "no files" bug.)
 
+   Both `/buckets` and `/bucket` are sent with a shared filter (`BucketQuery`):
+   `size=MONTH&isTrashed=false&isArchived=false`, plus optional `userId=<partner id>`
+   (target a partner's library) and `isFavorite=true` (favorites only).
+
    The response shape changed across versions:
    - **Newer (≈ v1.133+)**: a **columnar / struct-of-arrays** object with parallel arrays.
      Confirmed fields on a live v1.x server: `id`, `fileCreatedAt`, `ownerId`, `isImage`,
      `isFavorite`, `isTrashed`, `duration` (null for images), `thumbhash`, `ratio`,
      `livePhotoVideoId`, `city`, `country`, `visibility`, `status`, `projectionType`,
-     `localOffsetHours`. **No `originalFileName` and no file size** here → enrich via
-     `/assets/{id}`. Index `i` across the arrays describes asset `i`.
+     `localOffsetHours`. `ParseColumnar` reads `id`, `fileCreatedAt`, `originalFileName`
+     (present in some versions; optional), and derives IMAGE/VIDEO from `isImage` (falling
+     back to a non-zero `duration` string). File **size** is never in this payload, and the
+     name often isn't either → enrich via `/assets/{id}`. Index `i` across the arrays
+     describes asset `i`.
    - **Older**: a plain JSON **array of asset objects** (`{ id, type, fileCreatedAt,
-     originalFileName, … }`).
-   `ImmichClient.GetBucketAssetsAsync` detects which shape it got (object with arrays vs JSON
-   array) and normalizes both to `List<ImmichAsset>`.
+     originalFileName, exifInfo.fileSizeInByte, … }`); parsed by `ParseLegacyArray`.
+   `ImmichClient.GetBucketAssetsAsync` detects which shape it got (JSON array → legacy, else
+   columnar) and normalizes both to `List<ImmichAsset>`.
 
 We do not need full per-asset metadata for placeholders — id + createdAt + a name + type are
 enough. If `originalFileName` isn't in the bucket payload, fall back to `GET /api/assets/{id}`.
 
 ## Per-asset
 
-- **Metadata** — `GET /api/assets/{id}` → `{ id, type ("IMAGE"|"VIDEO"), originalFileName,
-  fileCreatedAt, exifInfo { fileSizeInByte, … }, checksum, … }`. Used to fill placeholder
-  size/timestamps and the display name when the bucket payload is thin.
-- **Thumbnail** — `GET /api/assets/{id}/thumbnail?size=thumbnail` (small) or `size=preview`
-  (larger). Returns a JPEG/WebP image. Used by the thumbnail shell extension — **no original
-  download**.
-- **Original** — `GET /api/assets/{id}/original` → the full original bytes. Supports HTTP
-  `Range` requests, which we use to satisfy partial cfapi `FETCH_DATA` ranges. Used only when
-  the user opens/attaches a file (hydration).
+- **Metadata (enrich)** — `GET /api/assets/{id}` → `{ id, originalFileName, exifInfo
+  { fileSizeInByte, … }, … }`. `EnrichAsync` reads only `originalFileName` and
+  `exifInfo.fileSizeInByte`, and only fills them if still empty/zero — used when the columnar
+  bucket payload omits the name and size. Best-effort: failures are swallowed.
+- **Thumbnail** — `GET /api/assets/{id}/thumbnail?size=<size>` where `size` is `thumbnail`
+  (small) or `preview` (larger; the client default). Returns a JPEG/WebP image. Used by the
+  thumbnail shell extension — **no original download**.
+- **Original** — `GET /api/assets/{id}/original` → the full original bytes. `GetOriginalAsync`
+  sends an HTTP `Range` header when given an offset/length, to satisfy partial cfapi
+  `FETCH_DATA` ranges. Used only when the user opens/attaches a file (hydration).
+- **Upload** — `POST /api/assets`, `multipart/form-data` with parts: `assetData` (the file
+  bytes, `application/octet-stream`), `deviceAssetId` (a synthesized
+  `ImmichDrive-<name>-<len>-<ticks>` key), `deviceId` (`ImmichDrive`), `fileCreatedAt`,
+  `fileModifiedAt` (both ISO‑8601 UTC). `UploadAssetAsync` returns true on any success status
+  (created or duplicate).
 
 ## Albums
 
@@ -59,6 +72,13 @@ enough. If `originalFileName` isn't in the bucket payload, fall back to `GET /ap
   …). So album assets need **no enrich** — `ParseLegacyArray` handles them directly.
   `PopulateAlbumsAsync` mirrors these into `Albums\<album name>\`; placeholders reuse the asset id, so
   thumbnails + hydration work the same as the timeline copy.
+
+## Partners
+
+- **List** — `GET /api/partners?direction=shared-with` → array of partners who share their
+  library **with** the current user. `GetPartnersAsync` reads `id` and `name` (falling back to
+  `email`, then `"Partner"`). The partner `id` is fed back as the `userId` filter on the
+  timeline queries above to enumerate that partner's assets. Non-200 → empty list.
 
 ## Notes
 
