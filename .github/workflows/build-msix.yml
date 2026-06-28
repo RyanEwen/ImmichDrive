@@ -1,0 +1,120 @@
+name: Build and Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-2025
+
+    strategy:
+      matrix:
+        platform: [x64, ARM64]
+
+    env:
+      PLATFORM: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # -- Extract version from Directory.Build.props --------------
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content Directory.Build.props
+          $ver = $props.Project.PropertyGroup[0].Version
+          echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
+          Write-Host "Detected version: $ver"
+
+      # -- Generate MSIX visual assets -----------------------------
+      - name: Generate images
+        shell: pwsh
+        run: ./ImmichDriveMSIX/generate-msix-images.ps1
+
+      # -- Build the MSIX package ----------------------------------
+      # Signs with a CA-trusted certificate when these repository secrets exist:
+      #   CODESIGN_PFX_BASE64   - base64-encoded PFX certificate file
+      #   CODESIGN_PFX_PASSWORD - password for the PFX certificate
+      # Otherwise a self-signed dev certificate is used (install requires trusting it).
+      - name: Build MSIX
+        shell: pwsh
+        env:
+          CODESIGN_PFX_BASE64: ${{ secrets.CODESIGN_PFX_BASE64 }}
+          CODESIGN_PFX_PASSWORD: ${{ secrets.CODESIGN_PFX_PASSWORD }}
+        run: |
+          $script = "ImmichDriveMSIX/build-msix.ps1"
+          if (-not [string]::IsNullOrEmpty($env:CODESIGN_PFX_BASE64)) {
+            $pfx = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CODESIGN_PFX_BASE64))
+            & $script -Platform $env:PLATFORM -TrustedPfxPath $pfx -TrustedPfxPassword $env:CODESIGN_PFX_PASSWORD
+            Remove-Item $pfx -Force
+          } else {
+            Write-Host "No CODESIGN_PFX_BASE64 secret - using a self-signed dev certificate." -ForegroundColor Yellow
+            & $script -Platform $env:PLATFORM
+          }
+          if ($LASTEXITCODE -ne 0) { Write-Error "build-msix failed"; exit 1 }
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MSIX-${{ matrix.platform }}
+          path: ImmichDriveMSIX/bin/msix-output/ImmichDrive-${{ matrix.platform }}.msix
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout (for git log)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes from commits
+        id: notes
+        run: |
+          CURRENT_TAG="${GITHUB_REF#refs/tags/}"
+          PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -E '^v' | sed -n '2p')
+          if [ -n "$PREVIOUS_TAG" ]; then RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"; else RANGE="${CURRENT_TAG}"; fi
+          BODY=$(git log "$RANGE" --pretty=format:"- %s" --no-merges \
+            | grep -vi "^- Bump version" | grep -vi "^- Merge branch")
+          if [ -z "$BODY" ]; then BODY="- Maintenance release (no notable changes)"; fi
+          {
+            echo "RELEASE_BODY<<RELEASE_EOF"
+            echo "## What's Changed"
+            echo ""
+            echo "$BODY"
+            echo "RELEASE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download MSIX artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: MSIX-*
+          path: artifacts
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find artifacts -name '*.msix' -exec cp {} release/ \;
+          ls -la release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          body: ${{ steps.notes.outputs.RELEASE_BODY }}
+          generate_release_notes: true

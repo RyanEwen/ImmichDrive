@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="ImmichDrive/ImmichDrive.csproj" />
+  <Project Path="ImmichDrive.ThumbnailProvider/ImmichDrive.ThumbnailProvider.csproj">
+    <Platform Project="x64" />
+  </Project>
+</Solution>

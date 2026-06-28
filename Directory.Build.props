@@ -1,0 +1,17 @@
+<Project>
+  <!-- Single source of truth for the app version -->
+  <PropertyGroup>
+    <Version>0.1.13</Version>
+  </PropertyGroup>
+
+  <!--
+    Auto-detect the build platform from the OS architecture when no explicit
+    Platform is provided (i.e. plain "dotnet build" without -p:Platform=...).
+    MSBuild defaults to AnyCPU, which isn't in our Platforms list and would
+    fall back to the first entry (x64) — wrong on ARM64 machines.
+  -->
+  <PropertyGroup Condition="'$(Platform)' == '' Or '$(Platform)' == 'AnyCPU'">
+    <Platform Condition="'$(PROCESSOR_ARCHITECTURE)' == 'ARM64'">ARM64</Platform>
+    <Platform Condition="'$(PROCESSOR_ARCHITECTURE)' != 'ARM64'">x64</Platform>
+  </PropertyGroup>
+</Project>

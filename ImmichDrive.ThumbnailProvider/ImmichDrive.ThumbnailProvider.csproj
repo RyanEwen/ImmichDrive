@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Out-of-process COM server (a real exe), not an in-proc comhost DLL. The in-proc comhost
+         could not host the .NET runtime inside the shell's thumbnail surrogate (activation failed
+         with 0x80008093). As an exe we control our own runtime and run with package identity. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ImmichDrive.ThumbnailProvider</RootNamespace>
+    <AssemblyName>ImmichDrive.ThumbnailProvider</AssemblyName>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.3" />
+  </ItemGroup>
+
+  <!-- Share the Immich client + index reader + path/settings helpers with the app
+       (linked, not duplicated). These files must stay WinUI-free and trim-safe. -->
+  <ItemGroup>
+    <Compile Include="..\ImmichDrive\Models\ImmichAsset.cs" Link="Shared\ImmichAsset.cs" />
+    <Compile Include="..\ImmichDrive\Services\ImmichClient.cs" Link="Shared\ImmichClient.cs" />
+    <Compile Include="..\ImmichDrive\Services\AssetIndex.cs" Link="Shared\AssetIndex.cs" />
+    <Compile Include="..\ImmichDrive\Services\SharedPaths.cs" Link="Shared\SharedPaths.cs" />
+    <Compile Include="..\ImmichDrive\Services\SettingsFile.cs" Link="Shared\SettingsFile.cs" />
+  </ItemGroup>
+</Project>

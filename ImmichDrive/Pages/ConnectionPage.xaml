@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="ImmichDrive.Pages.ConnectionPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer Padding="32,16,32,32">
+        <StackPanel Spacing="16" MaxWidth="760" HorizontalAlignment="Left">
+            <TextBlock Text="Connection" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Point ImmichDrive at your Immich server." Opacity="0.7" Margin="0,-8,0,0" />
+
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                    CornerRadius="8" Padding="20">
+                <StackPanel Spacing="16">
+                    <TextBox x:Name="ServerBox" Header="Server URL"
+                             PlaceholderText="https://photos.example.com" />
+                    <PasswordBox x:Name="ApiKeyBox" Header="API key"
+                                 PlaceholderText="Immich → Account Settings → API Keys" />
+                    <TextBox x:Name="FolderBox" Header="Drive folder (where it appears in Explorer)" />
+
+                    <InfoBar x:Name="ResultBar" IsOpen="False" IsClosable="False" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="TestButton" Click="TestButton_Click" Content="Test connection" />
+                        <Button x:Name="ConnectButton" Click="ConnectButton_Click"
+                                Style="{StaticResource AccentButtonStyle}" Content="Connect" />
+                        <Button x:Name="DisconnectButton" Click="DisconnectButton_Click" Content="Disconnect" />
+                        <ProgressRing x:Name="Busy" IsActive="False" Width="20" Height="20" VerticalAlignment="Center" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

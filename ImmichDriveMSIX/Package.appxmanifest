@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop3="http://schemas.microsoft.com/appx/manifest/desktop/windows10/3"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 com desktop3 uap5 rescap">
+
+  <!-- Identity: set Name/Publisher from Partner Center before Store submission. The build
+       script swaps Publisher to the dev cert subject for sideload builds. -->
+  <Identity
+    Name="ImmichDrive"
+    Publisher="CN=ImmichDrive-Dev"
+    Version="VERSION_PLACEHOLDER"
+    ProcessorArchitecture="ARCH_PLACEHOLDER" />
+
+  <Properties>
+    <DisplayName>ImmichDrive</DisplayName>
+    <PublisherDisplayName>Ryan Ewen</PublisherDisplayName>
+    <Logo>Images\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+    <PackageDependency Name="Microsoft.WindowsAppRuntime.1.8" MinVersion="8000.770.947.0" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+      Executable="ImmichDrive.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="ImmichDrive"
+        BackgroundColor="transparent"
+        Square150x150Logo="Images\Square150x150Logo.png"
+        Square44x44Logo="Images\Square44x44Logo.png"
+        Description="Your Immich photo library as a native Windows cloud drive - browse by date, with thumbnails, without filling up your disk.">
+        <uap:SplashScreen Image="Images\SplashScreen.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- Out-of-process COM server (exe) for the thumbnail shell extension. The shell launches
+             it on demand to render placeholder thumbnails; it runs with package identity. -->
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="ImmichDrive.ThumbnailProvider.exe"
+                           DisplayName="ImmichDrive Thumbnail Provider">
+              <com:Class Id="C0A6F3D2-7E41-4B8A-9C5E-2F1A6D3B8E70" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+
+        <!-- Auto-start at sign-in so the cloud provider is always running to hydrate files
+             (a placeholder can only be opened while the provider process is connected). Enabled
+             by default; the user can turn it off in Task Manager > Startup or in app Settings. -->
+        <uap5:Extension Category="windows.startupTask"
+          Executable="ImmichDrive.exe"
+          EntryPoint="Windows.FullTrustApplication">
+          <uap5:StartupTask TaskId="ImmichDriveAutoStart" Enabled="true" DisplayName="ImmichDrive" />
+        </uap5:Extension>
+
+        <!-- Associate the thumbnail provider with our CLOUD placeholder files only (scoped to the
+             sync root — does NOT override the system thumbnailer for other files). The schema's
+             xs:all makes the sibling handlers required, but their Clsid is optional, so the ones
+             we don't implement are present-but-empty (the shell treats them as absent). Only
+             ThumbnailProviderHandler carries a real CLSID. -->
+        <desktop3:Extension Category="windows.cloudFiles">
+          <desktop3:CloudFiles IconResource="Images\StoreLogo.png">
+            <desktop3:CustomStateHandler Clsid="C0A6F3D2-7E41-4B8A-9C5E-2F1A6D3B8E70" />
+            <desktop3:ThumbnailProviderHandler Clsid="C0A6F3D2-7E41-4B8A-9C5E-2F1A6D3B8E70" />
+            <desktop3:ExtendedPropertyHandler Clsid="C0A6F3D2-7E41-4B8A-9C5E-2F1A6D3B8E70" />
+            <desktop3:BannersHandler Clsid="C0A6F3D2-7E41-4B8A-9C5E-2F1A6D3B8E70" />
+            <desktop3:CloudFilesContextMenus />
+          </desktop3:CloudFiles>
+        </desktop3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="ImmichDrive.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="ImmichDrive Host">
+    <!--
+        Invisible host window. It is never shown: it sits off-screen as a tool window and its
+        only jobs are to own the tray icon (Shell_NotifyIcon) and host the Cloud Files sync
+        provider for the lifetime of the process. All UI is the on-demand SettingsWindow.
+    -->
+    <Grid />
+</Window>
