@@ -10,10 +10,22 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
-            <Image x:Name="Icon" Width="22" Height="22" VerticalAlignment="Center" />
-            <TextBlock Text="ImmichDrive" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
-        </StackPanel>
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Image x:Name="Icon" Width="22" Height="22" VerticalAlignment="Center" />
+                <TextBlock Text="ImmichDrive" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
+            </StackPanel>
+            <Button Grid.Column="1" x:Name="RefreshButton" Click="RefreshButton_Click"
+                    Padding="7" MinWidth="0" VerticalAlignment="Center"
+                    Background="Transparent" BorderBrush="Transparent"
+                    ToolTipService.ToolTip="Refresh now">
+                <FontIcon Glyph="&#xE72C;" FontSize="14" />
+            </Button>
+        </Grid>
 
         <StackPanel Grid.Row="1" Spacing="8">
             <TextBlock x:Name="StatusText" Opacity="0.85" TextWrapping="Wrap" />

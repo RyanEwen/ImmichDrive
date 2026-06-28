@@ -149,6 +149,39 @@ public sealed class ImmichClient : IDisposable
         return list;
     }
 
+    /// <summary>One Immich album.</summary>
+    public readonly record struct AlbumRef(string Id, string Name);
+
+    /// <summary>All albums (id + name).</summary>
+    public async Task<List<AlbumRef>> GetAlbumsAsync(CancellationToken ct = default)
+    {
+        var result = new List<AlbumRef>();
+        using var resp = await _http.GetAsync($"{ApiBase}/albums", ct);
+        if (!resp.IsSuccessStatusCode) return result;
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array) return result;
+        foreach (var el in doc.RootElement.EnumerateArray())
+        {
+            string? id = GetStr(el, "id");
+            string? name = GetStr(el, "albumName");
+            if (!string.IsNullOrEmpty(id)) result.Add(new AlbumRef(id, name ?? "Album"));
+        }
+        return result;
+    }
+
+    /// <summary>Assets of an album, with full metadata (name + size) — no enrich needed.</summary>
+    public async Task<List<ImmichAsset>> GetAlbumAssetsAsync(string albumId, CancellationToken ct = default)
+    {
+        using var resp = await _http.GetAsync($"{ApiBase}/albums/{albumId}", ct);
+        resp.EnsureSuccessStatusCode();
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        return doc.RootElement.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array
+            ? ParseLegacyArray(assets)
+            : [];
+    }
+
     /// <summary>Fills <see cref="ImmichAsset.OriginalFileName"/> / size from <c>/assets/{id}</c>.</summary>
     public async Task EnrichAsync(ImmichAsset a, CancellationToken ct = default)
     {

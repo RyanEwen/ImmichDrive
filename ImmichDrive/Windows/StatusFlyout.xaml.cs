@@ -84,7 +84,12 @@ public sealed partial class StatusFlyout : Window
         };
         SyncProgress.Visibility = syncing ? Visibility.Visible : Visibility.Collapsed;
         if (syncing) { SyncProgress.Maximum = total; SyncProgress.Value = done; }
+
+        RefreshButton.IsEnabled = dm.Status == DriveStatus.Online;
     }
+
+    private void RefreshButton_Click(object sender, RoutedEventArgs e) =>
+        DriveManager.Current.Refresh();   // stays open; progress shows live
 
     private void ShowNearTray()
     {

@@ -23,6 +23,7 @@ public sealed class PlaceholderPopulator
     private const int EnrichConcurrency = 10;
 
     private const string LegacyRecentFolderName = "Recent";
+    private const string AlbumsFolderName = "Albums";
 
     private readonly ImmichClient _client;
     private readonly AssetIndex _index;
@@ -52,7 +53,77 @@ public sealed class PlaceholderPopulator
             await ProcessBucketAsync(bucket, ct, () => progress?.Report((++done, total)));
         }
 
+        await PopulateAlbumsAsync(ct);
+
         Logger.Info("Populate complete: {0} processed, {1} indexed, across {2} buckets", done, _index.Count(), buckets.Count);
+    }
+
+    /// <summary>
+    /// Mirrors Immich albums into an <c>Albums\&lt;album name&gt;\</c> tree. Add-only: assets removed
+    /// from an album (or deleted albums) are not pruned. Album assets carry full metadata, so no
+    /// per-asset enrich is needed; placeholders share the asset id with the timeline copy, so
+    /// thumbnails + hydration work the same.
+    /// </summary>
+    private async Task PopulateAlbumsAsync(CancellationToken ct)
+    {
+        List<ImmichClient.AlbumRef> albums;
+        try { albums = await _client.GetAlbumsAsync(ct); }
+        catch (Exception ex) { Logger.Warn(ex, "Listing albums failed"); return; }
+        if (albums.Count == 0) return;
+
+        EnsureFolder(AlbumsFolderName);
+        var usedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var album in albums)
+        {
+            ct.ThrowIfCancellationRequested();
+            string folderName = Disambiguate(SanitizeFolderName(album.Name), usedFolders);
+            string albumRel = Path.Combine(AlbumsFolderName, folderName);
+            string albumAbs = EnsureFolder(albumRel);
+            string relPrefix = albumRel + Path.DirectorySeparatorChar;
+
+            List<ImmichAsset> assets;
+            try { assets = await _client.GetAlbumAssetsAsync(album.Id, ct); }
+            catch (Exception ex) { Logger.Warn(ex, "Album {0} fetch failed", album.Name); continue; }
+
+            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var indexRows = new List<(string, string, bool, long)>();
+            foreach (var asset in assets)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var inAlbum = _index.RowsForAsset(asset.Id)
+                        .Where(r => r.RelPath.StartsWith(relPrefix, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                    if (inAlbum.Count > 0)
+                    {
+                        // Already in this album — reserve names, recreate any missing placeholder.
+                        foreach (var (rel, size, isVideo) in inAlbum)
+                        {
+                            used.Add(Path.GetFileName(rel));
+                            if (!File.Exists(Path.Combine(_syncRootPath, rel)))
+                                CreatePlaceholder(albumAbs, Path.GetFileName(rel), asset.Id, size, isVideo, asset.FileCreatedAt);
+                        }
+                        continue;
+                    }
+
+                    string fileName = Disambiguate(asset.BuildFileName(), used);
+                    string rel2 = Path.Combine(albumRel, fileName);
+                    CreatePlaceholder(albumAbs, fileName, asset.Id, asset.FileSizeBytes, asset.IsVideo, asset.FileCreatedAt);
+                    indexRows.Add((rel2, asset.Id, asset.IsVideo, asset.FileSizeBytes));
+                }
+                catch (Exception ex) { Logger.Warn(ex, "Album placeholder failed for asset {0}", asset.Id); }
+            }
+            if (indexRows.Count > 0) _index.UpsertMany(indexRows);
+        }
+    }
+
+    private static string SanitizeFolderName(string name)
+    {
+        foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+        name = name.Trim().TrimEnd('.', ' ');
+        return name.Length == 0 ? "Album" : name;
     }
 
     /// <summary>
