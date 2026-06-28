@@ -230,6 +230,28 @@ public sealed class ImmichClient : IDisposable
         catch { /* best effort */ }
     }
 
+    /// <summary>Uploads a local file to Immich as a new asset. Returns true on success (created or duplicate).</summary>
+    public async Task<bool> UploadAssetAsync(string filePath, CancellationToken ct = default)
+    {
+        try
+        {
+            var info = new FileInfo(filePath);
+            using var fileStream = File.OpenRead(filePath);
+            using var content = new MultipartFormDataContent();
+            var fileContent = new StreamContent(fileStream);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            content.Add(fileContent, "assetData", info.Name);
+            content.Add(new StringContent($"ImmichDrive-{info.Name}-{info.Length}-{info.LastWriteTimeUtc.Ticks}"), "deviceAssetId");
+            content.Add(new StringContent("ImmichDrive"), "deviceId");
+            content.Add(new StringContent(info.CreationTimeUtc.ToString("o")), "fileCreatedAt");
+            content.Add(new StringContent(info.LastWriteTimeUtc.ToString("o")), "fileModifiedAt");
+
+            using var resp = await _http.PostAsync($"{ApiBase}/assets", content, ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch { return false; }
+    }
+
     /// <summary>Small thumbnail bytes for an asset. <paramref name="size"/> is "thumbnail" or "preview".</summary>
     public async Task<byte[]?> GetThumbnailBytesAsync(string assetId, string size = "preview", CancellationToken ct = default)
     {

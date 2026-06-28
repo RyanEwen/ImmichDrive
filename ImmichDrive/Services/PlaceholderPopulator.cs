@@ -97,6 +97,7 @@ public sealed class PlaceholderPopulator
             if (File.Exists(abs))
             {
                 try { File.SetAttributes(abs, FileAttributes.Normal); } catch { }
+                DriveSecurity.AllowDeleteFile(abs);   // override the read-only deny so the provider can prune
                 File.Delete(abs);
             }
         }
@@ -189,6 +190,7 @@ public sealed class PlaceholderPopulator
             if (currentFolders.Contains(rel)) continue;
             try
             {
+                DriveSecurity.AllowDeleteTree(dir);   // override the read-only deny on the subtree
                 foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
                     try { File.SetAttributes(f, FileAttributes.Normal); } catch { }
                 Directory.Delete(dir, recursive: true);

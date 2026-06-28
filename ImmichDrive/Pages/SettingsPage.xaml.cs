@@ -14,6 +14,7 @@ public sealed partial class SettingsPage : Page
         var s = SettingsManager.Current;
         ThemeCombo.SelectedIndex = Math.Clamp(s.AppTheme, 0, 2);
         StartupToggle.IsOn = s.Startup;
+        ReadOnlyToggle.IsOn = s.ReadOnlyDrive;
         _loading = false;
     }
 
@@ -28,5 +29,13 @@ public sealed partial class SettingsPage : Page
         if (_loading) return;
         SettingsManager.Current.Startup = StartupToggle.IsOn; // side-effect sets the Run key
         SettingsManager.SaveSettings();
+    }
+
+    private void ReadOnlyToggle_Toggled(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        if (_loading) return;
+        SettingsManager.Current.ReadOnlyDrive = ReadOnlyToggle.IsOn;
+        SettingsManager.SaveSettings();
+        Services.DriveManager.Current.RefreshSecurity();
     }
 }

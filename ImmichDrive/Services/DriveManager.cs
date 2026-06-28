@@ -34,6 +34,7 @@ public sealed class DriveManager
     private readonly SemaphoreSlim _populateLock = new(1, 1);
     private Timer? _fastTimer;
     private Timer? _slowTimer;
+    private UploadService? _upload;
 
     public DriveStatus Status { get; private set; } = DriveStatus.Disconnected;
     public string? StatusDetail { get; private set; }
@@ -107,12 +108,45 @@ public sealed class DriveManager
             _ = RunPopulate(newestOnly: false, skipIfBusy: false, _populateCts.Token);
 
             StartAutoRefresh();
+            SetUpSecurityAndUpload(syncRoot);
         }
         catch (Exception ex)
         {
             Logger.Error(ex, "Connect failed");
             Set(DriveStatus.Error, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Applies the read-only deny ACE (per the setting), creates a writable <c>Upload\</c> folder, and
+    /// starts watching it for uploads. ACL work runs off the connect path (icacls over the tree takes a
+    /// few seconds).
+    /// </summary>
+    private void SetUpSecurityAndUpload(string syncRoot)
+    {
+        string uploadDir = Path.Combine(syncRoot, UploadService.UploadFolderName);
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                if (SettingsManager.Current.ReadOnlyDrive) DriveSecurity.ApplyReadOnly(syncRoot);
+                else DriveSecurity.RemoveReadOnly(syncRoot);
+                DriveSecurity.EnsureUploadWritable(uploadDir);
+            }
+            catch (Exception ex) { Logger.Warn(ex, "Security setup failed"); }
+        });
+
+        _upload?.Dispose();
+        _upload = new UploadService(_client!, uploadDir);
+        _upload.Start();
+    }
+
+    /// <summary>Re-applies (or removes) the read-only deny after the setting is toggled.</summary>
+    public void RefreshSecurity()
+    {
+        if (Status != DriveStatus.Online) return;
+        SetUpSecurityAndUpload(SettingsManager.Current.EffectiveSyncRootPath);
     }
 
     private void StartAutoRefresh()
@@ -190,6 +224,7 @@ public sealed class DriveManager
     /// <summary>Deletes the placeholder folders under the sync root (for a clean layout rebuild).</summary>
     private static void WipeSyncRootSubfolders(string syncRoot)
     {
+        DriveSecurity.RemoveReadOnly(syncRoot); // lift the read-only deny so the wipe can delete
         try
         {
             foreach (var dir in Directory.GetDirectories(syncRoot))
@@ -215,6 +250,9 @@ public sealed class DriveManager
     {
         _fastTimer?.Dispose(); _fastTimer = null;
         _slowTimer?.Dispose(); _slowTimer = null;
+        _upload?.Dispose(); _upload = null;
+        if (!string.IsNullOrWhiteSpace(SettingsManager.Current.ServerUrl))
+            try { DriveSecurity.RemoveReadOnly(SettingsManager.Current.EffectiveSyncRootPath); } catch { }
         _populateCts?.Cancel();
         _provider?.Disconnect();
         _provider = null;

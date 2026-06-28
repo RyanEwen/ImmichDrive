@@ -25,6 +25,21 @@
                 </Grid>
             </Border>
 
+            <!-- Read-only -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                    CornerRadius="8" Padding="16,12">
+                <Grid>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Read-only drive" FontWeight="SemiBold" />
+                        <TextBlock Text="Block edits, deletes, renames and new files. Use the Upload folder to add photos to Immich."
+                                   Opacity="0.7" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <ToggleSwitch x:Name="ReadOnlyToggle" HorizontalAlignment="Right" MinWidth="0"
+                                  Toggled="ReadOnlyToggle_Toggled" />
+                </Grid>
+            </Border>
+
             <!-- Startup -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
