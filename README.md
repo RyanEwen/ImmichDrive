@@ -54,37 +54,16 @@ and freeing space dehydrates it back to a placeholder.
 
 That's it — browse by date and double-click (or attach) any photo.
 
-## Building
-
-**Settings app (dev):**
-```powershell
-dotnet build ImmichDrive/ImmichDrive.csproj -c Debug
-```
-
-**MSIX package (installable / Store):**
-```powershell
-powershell -File ImmichDriveMSIX/generate-msix-images.ps1   # one-time: visual assets
-powershell -File ImmichDriveMSIX/build-msix.ps1             # sideload (dev-signed)
-powershell -File ImmichDriveMSIX/build-msix.ps1 -NoSign     # Store upload
-```
-
-The script publishes the app **and** the thumbnail shell extension into the package. Bump
-`<Version>` in `Directory.Build.props` for each build (MSIX blocks same-version re-installs).
-Before Store submission, set `<Identity>` `Name`/`Publisher` in
-`ImmichDriveMSIX/Package.appxmanifest` to your Partner Center values.
-
 ## Requirements
 
-- Windows 11 (build 22621+) — the Cloud Files API and modern shell thumbnail handling.
-- A reachable Immich server (any reasonably recent version) and an API key.
-- .NET 10 SDK; Windows SDK packaging tools to build the MSIX.
+- **Windows 11** (build 22621 or newer) — ImmichDrive relies on the Cloud Files API and modern shell thumbnails.
+- **An Immich server** you can reach (any reasonably recent version), and an **API key** from it.
 
-## Status
+## Development
 
-This is an early build. The Immich client, settings UI, tray host, date-organized
-placeholder population, on-demand hydration, and the thumbnail extension are implemented;
-the Cloud Files provider and the COM thumbnail registration are best validated on a real
-Windows 11 machine with a live Immich server (see `ARCHITECTURE.md` and `.claude/docs/`).
+Building from source, the MSIX packaging pipeline, and how the pieces fit together — the resident
+app, the thumbnail shell extension, the Cloud Files provider, and the on-disk index — are
+documented in **[DEVELOPMENT.md](DEVELOPMENT.md)**.
 
 ## License
 
