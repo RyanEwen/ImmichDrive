@@ -13,14 +13,14 @@
   <!-- Identity: set Name/Publisher from Partner Center before Store submission. The build
        script swaps Publisher to the dev cert subject for sideload builds. -->
   <Identity
-    Name="ImmichDrive"
-    Publisher="CN=ImmichDrive-Dev"
+    Name="27766TechnicallyReal.ImmichDrive"
+    Publisher="CN=C21E6CEF-D0D1-4497-93F9-3718D054DA0E"
     Version="VERSION_PLACEHOLDER"
     ProcessorArchitecture="ARCH_PLACEHOLDER" />
 
   <Properties>
     <DisplayName>ImmichDrive</DisplayName>
-    <PublisherDisplayName>Ryan Ewen</PublisherDisplayName>
+    <PublisherDisplayName>TechnicallyReal</PublisherDisplayName>
     <Logo>Images\StoreLogo.png</Logo>
   </Properties>
 
