@@ -126,6 +126,18 @@ public sealed class AssetIndex
         return RowsWhere("rel_path < $lo OR rel_path >= $hi", lo, hi);
     }
 
+    /// <summary>Every (relPath, assetId) row.</summary>
+    public List<(string Rel, string AssetId)> AllRows()
+    {
+        var list = new List<(string, string)>();
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT rel_path, asset_id FROM assets;";
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add((r.GetString(0), r.GetString(1)));
+        return list;
+    }
+
     private List<(string, string)> RowsWhere(string where, string lo, string hi)
     {
         var list = new List<(string, string)>();

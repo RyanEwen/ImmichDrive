@@ -55,11 +55,20 @@ public sealed class ImmichClient : IDisposable
     /// <summary>One month bucket: the raw API key (passed back verbatim), its parsed date, and count.</summary>
     public readonly record struct BucketRef(string Raw, DateTimeOffset Date, int Count);
 
-    /// <summary>Month buckets, newest first.</summary>
-    public async Task<List<BucketRef>> GetBucketsAsync(CancellationToken ct = default)
+    private static string BucketQuery(string? userId, bool? isFavorite)
+    {
+        string q = "size=MONTH&isTrashed=false&isArchived=false";
+        if (!string.IsNullOrEmpty(userId)) q += "&userId=" + Uri.EscapeDataString(userId);
+        if (isFavorite == true) q += "&isFavorite=true";
+        return q;
+    }
+
+    /// <summary>Month buckets, newest first. <paramref name="userId"/> targets a partner's library;
+    /// <paramref name="isFavorite"/> restricts to favorites.</summary>
+    public async Task<List<BucketRef>> GetBucketsAsync(string? userId = null, bool? isFavorite = null, CancellationToken ct = default)
     {
         var result = new List<BucketRef>();
-        using var resp = await _http.GetAsync($"{ApiBase}/timeline/buckets?size=MONTH&isTrashed=false&isArchived=false", ct);
+        using var resp = await _http.GetAsync($"{ApiBase}/timeline/buckets?{BucketQuery(userId, isFavorite)}", ct);
         resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
@@ -83,9 +92,9 @@ public sealed class ImmichClient : IDisposable
     /// returned by <see cref="GetBucketsAsync"/> — reformatting it (e.g. shifting to UTC) makes
     /// the server return an empty bucket.
     /// </summary>
-    public async Task<List<ImmichAsset>> GetBucketAssetsAsync(string rawTimeBucket, CancellationToken ct = default)
+    public async Task<List<ImmichAsset>> GetBucketAssetsAsync(string rawTimeBucket, string? userId = null, bool? isFavorite = null, CancellationToken ct = default)
     {
-        string url = $"{ApiBase}/timeline/bucket?size=MONTH&timeBucket={Uri.EscapeDataString(rawTimeBucket)}&isTrashed=false&isArchived=false";
+        string url = $"{ApiBase}/timeline/bucket?{BucketQuery(userId, isFavorite)}&timeBucket={Uri.EscapeDataString(rawTimeBucket)}";
         using var resp = await _http.GetAsync(url, ct);
         resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct);
@@ -147,6 +156,27 @@ public sealed class ImmichClient : IDisposable
             list.Add(a);
         }
         return list;
+    }
+
+    /// <summary>A partner who shares their library with this user.</summary>
+    public readonly record struct PartnerRef(string Id, string Name);
+
+    /// <summary>Partners who share their library with the current user.</summary>
+    public async Task<List<PartnerRef>> GetPartnersAsync(CancellationToken ct = default)
+    {
+        var result = new List<PartnerRef>();
+        using var resp = await _http.GetAsync($"{ApiBase}/partners?direction=shared-with", ct);
+        if (!resp.IsSuccessStatusCode) return result;
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array) return result;
+        foreach (var el in doc.RootElement.EnumerateArray())
+        {
+            string? id = GetStr(el, "id");
+            string name = GetStr(el, "name") ?? GetStr(el, "email") ?? "Partner";
+            if (!string.IsNullOrEmpty(id)) result.Add(new PartnerRef(id, name));
+        }
+        return result;
     }
 
     /// <summary>One Immich album.</summary>

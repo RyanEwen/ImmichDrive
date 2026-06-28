@@ -24,6 +24,14 @@ public sealed class PlaceholderPopulator
 
     private const string LegacyRecentFolderName = "Recent";
     private const string AlbumsFolderName = "Albums";
+    private const string FavoritesFolderName = "Favorites";
+    private const string PartnersFolderName = "Partners";
+
+    // Top-level folders that are NOT part of the main timeline (so the timeline prune ignores them).
+    private static bool IsUnderReserved(string rel) =>
+        rel.StartsWith(AlbumsFolderName + "\\", StringComparison.OrdinalIgnoreCase) ||
+        rel.StartsWith(FavoritesFolderName + "\\", StringComparison.OrdinalIgnoreCase) ||
+        rel.StartsWith(PartnersFolderName + "\\", StringComparison.OrdinalIgnoreCase);
 
     private readonly ImmichClient _client;
     private readonly AssetIndex _index;
@@ -43,7 +51,7 @@ public sealed class PlaceholderPopulator
         Directory.CreateDirectory(_syncRootPath);
         RemoveLegacyRecentFolder();
 
-        var buckets = await _client.GetBucketsAsync(ct);
+        var buckets = await _client.GetBucketsAsync(ct: ct);
         int total = buckets.Sum(b => b.Count);
         int done = 0;
 
@@ -52,7 +60,7 @@ public sealed class PlaceholderPopulator
         foreach (var bucket in buckets) // newest first
         {
             ct.ThrowIfCancellationRequested();
-            allOk &= await ProcessBucketAsync(bucket, ct, () => progress?.Report((++done, total)), seenIds);
+            allOk &= await ProcessBucketAsync(bucket, "", null, ct, () => progress?.Report((++done, total)), seenIds);
         }
 
         // Only prune when we have the complete picture (no bucket fetch failed), so a transient
@@ -60,16 +68,19 @@ public sealed class PlaceholderPopulator
         if (allOk) PruneTimeline(seenIds);
 
         await PopulateAlbumsAsync(ct);
+        await PopulateFavoritesAsync(ct);
+        await PopulatePartnersAsync(ct);
 
         Logger.Info("Populate complete: {0} processed, {1} indexed, across {2} buckets", done, _index.Count(), buckets.Count);
     }
 
-    /// <summary>Removes timeline placeholders whose asset no longer exists in Immich.</summary>
+    /// <summary>Removes main-timeline placeholders whose asset no longer exists in Immich's timeline.</summary>
     private void PruneTimeline(HashSet<string> seenIds)
     {
         int removed = 0;
-        foreach (var (rel, assetId) in _index.RowsNotUnderPrefix(AlbumsFolderName + "\\"))
+        foreach (var (rel, assetId) in _index.AllRows())
         {
+            if (IsUnderReserved(rel)) continue;          // Albums / Favorites / Partners handled separately
             if (seenIds.Contains(assetId)) continue;
             DeletePlaceholder(rel);
             removed++;
@@ -163,26 +174,27 @@ public sealed class PlaceholderPopulator
             if (pruned > 0) Logger.Info("Album '{0}': pruned {1} removed assets", album.Name, pruned);
         }
 
-        PruneOrphanAlbumFolders(currentAlbumFolders);
+        PruneOrphanFolders(AlbumsFolderName, currentAlbumFolders);
     }
 
-    /// <summary>Removes album folders (and index rows) that no longer match a current Immich album.</summary>
-    private void PruneOrphanAlbumFolders(HashSet<string> currentAlbumFolders)
+    /// <summary>Removes immediate subfolders of <paramref name="rootFolderName"/> (and their index rows)
+    /// that aren't in <paramref name="currentFolders"/> — i.e. albums/partners deleted or renamed in Immich.</summary>
+    private void PruneOrphanFolders(string rootFolderName, HashSet<string> currentFolders)
     {
-        string albumsAbs = Path.Combine(_syncRootPath, AlbumsFolderName);
-        if (!Directory.Exists(albumsAbs)) return;
-        foreach (var dir in Directory.GetDirectories(albumsAbs))
+        string rootAbs = Path.Combine(_syncRootPath, rootFolderName);
+        if (!Directory.Exists(rootAbs)) return;
+        foreach (var dir in Directory.GetDirectories(rootAbs))
         {
-            string rel = Path.Combine(AlbumsFolderName, Path.GetFileName(dir));
-            if (currentAlbumFolders.Contains(rel)) continue;
+            string rel = Path.Combine(rootFolderName, Path.GetFileName(dir));
+            if (currentFolders.Contains(rel)) continue;
             try
             {
                 foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
                     try { File.SetAttributes(f, FileAttributes.Normal); } catch { }
                 Directory.Delete(dir, recursive: true);
-                Logger.Info("Removed deleted album folder {0}", rel);
+                Logger.Info("Removed orphaned folder {0}", rel);
             }
-            catch (Exception ex) { Logger.Warn(ex, "Removing album folder {0} failed", rel); }
+            catch (Exception ex) { Logger.Warn(ex, "Removing folder {0} failed", rel); }
             _index.DeleteByPathPrefix(rel + "\\");
         }
     }
@@ -191,7 +203,118 @@ public sealed class PlaceholderPopulator
     {
         foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
         name = name.Trim().TrimEnd('.', ' ');
-        return name.Length == 0 ? "Album" : name;
+        return name.Length == 0 ? "Unnamed" : name;
+    }
+
+    /// <summary>Mirrors favorited assets into a flat <c>Favorites\</c> folder, and prunes un-favorited ones.</summary>
+    private async Task PopulateFavoritesAsync(CancellationToken ct)
+    {
+        List<ImmichClient.BucketRef> buckets;
+        try { buckets = await _client.GetBucketsAsync(isFavorite: true, ct: ct); }
+        catch (Exception ex) { Logger.Warn(ex, "Listing favorite buckets failed"); return; }
+
+        string favAbs = EnsureFolder(FavoritesFolderName);
+        string favPrefix = FavoritesFolderName + Path.DirectorySeparatorChar;
+        var seenFav = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var newAssets = new List<ImmichAsset>();
+        bool allOk = true;
+
+        foreach (var bucket in buckets)
+        {
+            ct.ThrowIfCancellationRequested();
+            List<ImmichAsset> assets;
+            try { assets = await _client.GetBucketAssetsAsync(bucket.Raw, isFavorite: true, ct: ct); }
+            catch (Exception ex) { Logger.Warn(ex, "Favorite bucket {0} failed", bucket.Raw); allOk = false; continue; }
+
+            foreach (var asset in assets)
+            {
+                seenFav.Add(asset.Id);
+                var rows = _index.RowsForAsset(asset.Id)
+                    .Where(r => r.RelPath.StartsWith(favPrefix, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (rows.Count == 0) { newAssets.Add(asset); continue; }
+                foreach (var (rel, size, isVideo) in rows)
+                {
+                    used.Add(Path.GetFileName(rel));
+                    if (!File.Exists(Path.Combine(_syncRootPath, rel)))
+                        CreatePlaceholder(favAbs, Path.GetFileName(rel), asset.Id, size, isVideo, asset.FileCreatedAt);
+                }
+            }
+        }
+
+        if (newAssets.Count > 0)
+        {
+            using (var sem = new SemaphoreSlim(EnrichConcurrency))
+                await Task.WhenAll(newAssets.Select(async a => { await sem.WaitAsync(ct); try { await _client.EnrichAsync(a, ct); } finally { sem.Release(); } }));
+
+            var indexRows = new List<(string, string, bool, long)>();
+            foreach (var asset in newAssets)
+            {
+                try
+                {
+                    string fileName = Disambiguate(asset.BuildFileName(), used);
+                    CreatePlaceholder(favAbs, fileName, asset.Id, asset.FileSizeBytes, asset.IsVideo, asset.FileCreatedAt);
+                    indexRows.Add((Path.Combine(FavoritesFolderName, fileName), asset.Id, asset.IsVideo, asset.FileSizeBytes));
+                }
+                catch (Exception ex) { Logger.Warn(ex, "Favorite placeholder failed for asset {0}", asset.Id); }
+            }
+            if (indexRows.Count > 0) _index.UpsertMany(indexRows);
+        }
+
+        if (allOk)
+        {
+            int pruned = 0;
+            foreach (var (rel, assetId) in _index.RowsUnderPrefix(favPrefix))
+                if (!seenFav.Contains(assetId)) { DeletePlaceholder(rel); pruned++; }
+            if (pruned > 0) Logger.Info("Pruned {0} un-favorited placeholders", pruned);
+        }
+    }
+
+    /// <summary>
+    /// Mirrors each partner's shared library into <c>Partners\&lt;name&gt;\&lt;month&gt;\</c> (same month
+    /// layout as the main timeline), and keeps it in sync (removed assets + removed partners are pruned).
+    /// </summary>
+    private async Task PopulatePartnersAsync(CancellationToken ct)
+    {
+        List<ImmichClient.PartnerRef> partners;
+        try { partners = await _client.GetPartnersAsync(ct); }
+        catch (Exception ex) { Logger.Warn(ex, "Listing partners failed"); return; }
+        if (partners.Count == 0) return; // none (or transient) → don't prune
+
+        EnsureFolder(PartnersFolderName);
+        var usedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var currentFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var partner in partners)
+        {
+            ct.ThrowIfCancellationRequested();
+            string folderName = Disambiguate(SanitizeFolderName(partner.Name), usedFolders);
+            string partnerRoot = Path.Combine(PartnersFolderName, folderName);
+            currentFolders.Add(partnerRoot);
+            EnsureFolder(partnerRoot);
+
+            List<ImmichClient.BucketRef> buckets;
+            try { buckets = await _client.GetBucketsAsync(userId: partner.Id, ct: ct); }
+            catch (Exception ex) { Logger.Warn(ex, "Partner {0} buckets failed", partner.Name); continue; }
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            bool allOk = true;
+            foreach (var bucket in buckets)
+            {
+                ct.ThrowIfCancellationRequested();
+                allOk &= await ProcessBucketAsync(bucket, partnerRoot, partner.Id, ct, null, seen);
+            }
+
+            if (allOk)
+            {
+                int pruned = 0;
+                foreach (var (rel, assetId) in _index.RowsUnderPrefix(partnerRoot + Path.DirectorySeparatorChar))
+                    if (!seen.Contains(assetId)) { DeletePlaceholder(rel); pruned++; }
+                if (pruned > 0) Logger.Info("Partner '{0}': pruned {1} removed assets", partner.Name, pruned);
+            }
+        }
+
+        PruneOrphanFolders(PartnersFolderName, currentFolders);
     }
 
     /// <summary>
@@ -202,8 +325,8 @@ public sealed class PlaceholderPopulator
     {
         _index.EnsureCreated();
         Directory.CreateDirectory(_syncRootPath);
-        var buckets = await _client.GetBucketsAsync(ct);
-        if (buckets.Count > 0) await ProcessBucketAsync(buckets[0], ct, null);
+        var buckets = await _client.GetBucketsAsync(ct: ct);
+        if (buckets.Count > 0) await ProcessBucketAsync(buckets[0], "", null, ct, null);
     }
 
     /// <summary>
@@ -211,42 +334,37 @@ public sealed class PlaceholderPopulator
     /// every asset id it sees to <paramref name="seenIds"/> (for prune reconciliation). Returns false
     /// if the bucket couldn't be fetched (so the caller knows the picture is incomplete and skips pruning).
     /// </summary>
-    private async Task<bool> ProcessBucketAsync(ImmichClient.BucketRef bucket, CancellationToken ct, Action? onAsset, HashSet<string>? seenIds = null)
+    private async Task<bool> ProcessBucketAsync(ImmichClient.BucketRef bucket, string relRoot, string? userId, CancellationToken ct, Action? onAsset, HashSet<string>? seenIds = null)
     {
         List<ImmichAsset> assets;
-        try { assets = await _client.GetBucketAssetsAsync(bucket.Raw, ct); }
+        try { assets = await _client.GetBucketAssetsAsync(bucket.Raw, userId, null, ct); }
         catch (Exception ex) { Logger.Warn(ex, "Bucket {0} failed", bucket.Raw); return false; }
 
         var localMonth = bucket.Date.ToLocalTime();
-        string monthActual = MonthFolderName(localMonth);
-        string monthAbs = EnsureFolder(monthActual);
+        string monthName = MonthFolderName(localMonth);
+        string monthRel = string.IsNullOrEmpty(relRoot) ? monthName : Path.Combine(relRoot, monthName);
+        string monthAbs = EnsureFolder(monthRel);
+        string monthPrefix = monthRel + Path.DirectorySeparatorChar;
         var monthUsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Partition into already-known (self-heal only) and brand-new (needs enrich + create).
+        // Self-heal is scoped to THIS folder so processing one scope (timeline / partner) never
+        // touches another scope's placeholders.
         var newAssets = new List<ImmichAsset>();
         foreach (var asset in assets)
         {
             ct.ThrowIfCancellationRequested();
             seenIds?.Add(asset.Id);
-            var rows = _index.RowsForAsset(asset.Id);
+            var rows = _index.RowsForAsset(asset.Id)
+                .Where(r => r.RelPath.StartsWith(monthPrefix, StringComparison.OrdinalIgnoreCase)).ToList();
             if (rows.Count == 0) { newAssets.Add(asset); continue; }
 
-            // Known — recreate any placeholder that went missing (e.g. after a re-register),
-            // and reserve its name so new assets don't collide with it.
             foreach (var (rel, size, isVideo) in rows)
             {
                 string fn = Path.GetFileName(rel);
                 monthUsed.Add(fn);
-
-                string abs = Path.Combine(_syncRootPath, rel);
-                if (File.Exists(abs)) continue;
-                try
-                {
-                    string dir = Path.GetDirectoryName(abs)!;
-                    Directory.CreateDirectory(dir);
-                    CreatePlaceholder(dir, fn, asset.Id, size, isVideo, asset.FileCreatedAt);
-                }
-                catch (Exception ex) { Logger.Warn(ex, "Re-create failed for {0}", rel); }
+                if (!File.Exists(Path.Combine(_syncRootPath, rel)))
+                    CreatePlaceholder(monthAbs, fn, asset.Id, size, isVideo, asset.FileCreatedAt);
             }
             onAsset?.Invoke();
         }
@@ -269,11 +387,9 @@ public sealed class PlaceholderPopulator
             ct.ThrowIfCancellationRequested();
             try
             {
-                string baseName = asset.BuildFileName();
-                string fileName = Disambiguate(baseName, monthUsed);
-                string monthRel = Path.Combine(monthActual, fileName);
+                string fileName = Disambiguate(asset.BuildFileName(), monthUsed);
                 CreatePlaceholder(monthAbs, fileName, asset.Id, asset.FileSizeBytes, asset.IsVideo, asset.FileCreatedAt);
-                indexRows.Add((monthRel, asset.Id, asset.IsVideo, asset.FileSizeBytes));
+                indexRows.Add((Path.Combine(monthRel, fileName), asset.Id, asset.IsVideo, asset.FileSizeBytes));
             }
             catch (Exception ex) { Logger.Warn(ex, "Placeholder failed for asset {0}", asset.Id); }
             onAsset?.Invoke();
