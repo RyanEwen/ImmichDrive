@@ -1,7 +1,26 @@
-# ImmichDrive
+<p align="center">
+  <img src="ImmichDrive/Resources/ImmichDrive.png" alt="ImmichDrive" width="128">
+</p>
 
-A Windows 11 app that mounts your [Immich](https://immich.app) photo library as a **native
-cloud drive** in File Explorer — **without storing the photos on your PC**.
+<h1 align="center">ImmichDrive</h1>
+
+<p align="center">
+  Your <a href="https://immich.app">Immich</a> photo library as a native cloud drive in File Explorer — on demand, without storing the photos on your PC.
+</p>
+
+<p align="center">
+  <img src="docs/explorer-thumbnails.png" alt="Real thumbnails on demand inside a month folder" width="760">
+</p>
+
+<p align="center">
+  <img src="docs/explorer-library.png" alt="The library in File Explorer — by date, plus Albums, Favorites, Partners and Upload" width="760">
+</p>
+
+<p align="center">
+  <img src="docs/home.png" alt="ImmichDrive — connected and online" width="380">
+  &nbsp;&nbsp;
+  <img src="docs/tray-flyout.png" alt="System-tray flyout" width="380">
+</p>
 
 Take a photo on your phone, let it auto-sync to Immich, and then grab it straight from your
 computer's file picker — no need to open the Immich web UI, download anything by hand, or
@@ -17,8 +36,8 @@ names, dates, and **thumbnails**) but take up **0 bytes** until you open one. Op
 ("hydrating" it) streams the original down from your Immich server in the background; closing
 and freeing space dehydrates it back to a placeholder.
 
-- **Organized by date, newest first** — `2026\06-June\…` archive folders plus a flat
-  **`Recent`** folder holding the last couple of weeks for quick grabbing.
+- **Organized the way you think about it** — `2026-06 June` date folders (newest first), plus
+  **Albums**, **Favorites**, and **Partners** folders that mirror Immich and stay in sync.
 - **Real thumbnails without downloading** — a lightweight shell extension fetches Immich's
   small thumbnails so you can *see* your photos before opening them, with nothing on disk.
 - **Lives in the tray** — a single tray icon shows status (online / syncing) and lets you
