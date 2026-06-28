@@ -33,9 +33,6 @@ public partial class UserSettings : ObservableObject
     /// <summary>Size of the flat Recent\ window in days.</summary>
     [ObservableProperty] public partial int RecentDays { get; set; } = 14;
 
-    /// <summary>Make the drive read-only to the user (block edits/deletes/renames/new files, except Upload\).</summary>
-    [ObservableProperty] public partial bool ReadOnlyDrive { get; set; } = true;
-
     /// <summary>Last successful timeline populate (UTC).</summary>
     [ObservableProperty] public partial DateTimeOffset LastSyncUtc { get; set; }
 

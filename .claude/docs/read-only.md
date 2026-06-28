@@ -24,8 +24,9 @@ OneDrive's read-only folders behave.
   beats the inherited deny) before deleting; `PruneOrphanFolders`/wipe call `AllowDeleteTree`
   (`icacls /grant … /T`).
 
-Applied on connect on a background thread (icacls over ~47k files ≈ 4s). Toggle via the
-`ReadOnlyDrive` setting (`DriveManager.RefreshSecurity`); removed on disconnect.
+Applied on connect on a background thread (icacls over ~47k files ≈ 4s). The drive is **always**
+read-only (no setting) — the sync is one-way, so local writes would only be silently reverted or
+lost. `RemoveReadOnly` is still used on disconnect and before a layout-migration wipe.
 
 ## Upload folder
 

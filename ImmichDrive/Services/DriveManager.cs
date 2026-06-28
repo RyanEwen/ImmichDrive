@@ -130,9 +130,8 @@ public sealed class DriveManager
         {
             try
             {
-                if (SettingsManager.Current.ReadOnlyDrive) DriveSecurity.ApplyReadOnly(syncRoot);
-                else DriveSecurity.RemoveReadOnly(syncRoot);
-                DriveSecurity.EnsureUploadWritable(uploadDir);
+                DriveSecurity.ApplyReadOnly(syncRoot);          // the drive is always read-only
+                DriveSecurity.EnsureUploadWritable(uploadDir);  // …except the Upload folder
             }
             catch (Exception ex) { Logger.Warn(ex, "Security setup failed"); }
         });
@@ -140,13 +139,6 @@ public sealed class DriveManager
         _upload?.Dispose();
         _upload = new UploadService(_client!, uploadDir);
         _upload.Start();
-    }
-
-    /// <summary>Re-applies (or removes) the read-only deny after the setting is toggled.</summary>
-    public void RefreshSecurity()
-    {
-        if (Status != DriveStatus.Online) return;
-        SetUpSecurityAndUpload(SettingsManager.Current.EffectiveSyncRootPath);
     }
 
     private void StartAutoRefresh()
