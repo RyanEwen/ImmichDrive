@@ -9,6 +9,12 @@
 </p>
 
 <p align="center">
+  <a href="https://apps.microsoft.com/detail/9MWC6165N7DH">
+    <img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Download ImmichDrive from the Microsoft Store" height="56">
+  </a>
+</p>
+
+<p align="center">
   <img src="docs/explorer-thumbnails.png" alt="Real thumbnails on demand inside a month folder" width="760">
 </p>
 
