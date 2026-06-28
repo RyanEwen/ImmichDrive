@@ -51,6 +51,15 @@ enough. If `originalFileName` isn't in the bucket payload, fall back to `GET /ap
   `Range` requests, which we use to satisfy partial cfapi `FETCH_DATA` ranges. Used only when
   the user opens/attaches a file (hydration).
 
+## Albums
+
+- **List** — `GET /api/albums` → array of `{ id, albumName, assetCount, … }`.
+- **Album detail** — `GET /api/albums/{id}` → `{ id, albumName, assets: [ … ] }` where each asset is a
+  **full** asset object (`id`, `type`, `originalFileName`, `fileCreatedAt`, `exifInfo.fileSizeInByte`,
+  …). So album assets need **no enrich** — `ParseLegacyArray` handles them directly.
+  `PopulateAlbumsAsync` mirrors these into `Albums\<album name>\`; placeholders reuse the asset id, so
+  thumbnails + hydration work the same as the timeline copy.
+
 ## Notes
 
 - Times are UTC ISO‑8601. Convert `fileCreatedAt` to local for the `Year\Month` foldering and
