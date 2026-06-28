@@ -13,7 +13,9 @@ public sealed partial class SettingsPage : Page
         InitializeComponent();
         var s = SettingsManager.Current;
         ThemeCombo.SelectedIndex = Math.Clamp(s.AppTheme, 0, 2);
-        StartupToggle.IsOn = s.Startup;
+        // Reflect the real OS startup-task state (enabled by default via the manifest), not just the
+        // stored flag — so the toggle is truthful even if the user changed it in Task Manager.
+        StartupToggle.IsOn = StartupManager.IsEnabled();
         _loading = false;
     }
 

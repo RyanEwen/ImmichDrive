@@ -46,8 +46,9 @@ public partial class UserSettings : ObservableObject
     /// <summary>0 = system, 1 = light, 2 = dark.</summary>
     [ObservableProperty] public partial int AppTheme { get; set; }
 
-    /// <summary>Launch ImmichDrive at sign-in (keeps the drive online).</summary>
-    [ObservableProperty] public partial bool Startup { get; set; }
+    /// <summary>Launch ImmichDrive at sign-in (keeps the drive online). On by default — matches the
+    /// MSIX startup task, which is enabled by default, so the drive is ready and syncing after a boot.</summary>
+    [ObservableProperty] public partial bool Startup { get; set; } = true;
 
     [ObservableProperty] public partial string LastKnownVersion { get; set; } = "";
 

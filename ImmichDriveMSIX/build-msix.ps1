@@ -177,6 +177,12 @@ if (-not $NoSign) {
         $manifestContent = $manifestContent.Replace("Publisher=`"$($Matches[1])`"", "Publisher=`"$($signCert.Subject)`"")
         Write-Host "  Stamped Publisher=$($signCert.Subject)"
     }
+    # Use the dev identity Name for sideload builds so they form a stable package family that updates
+    # in place. The real Store Name (from Partner Center) is only used for -NoSign (Store) builds.
+    if ($manifestContent -match '<Identity[^>]+Name="([^"]+)"') {
+        $manifestContent = $manifestContent.Replace("Name=`"$($Matches[1])`"", "Name=`"ImmichDrive`"")
+        Write-Host "  Stamped dev Name=ImmichDrive"
+    }
 }
 
 Set-Content -Path (Join-Path $layoutDir "AppxManifest.xml") -Value $manifestContent -NoNewline

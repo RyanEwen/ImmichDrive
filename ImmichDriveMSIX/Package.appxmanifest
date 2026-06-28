@@ -10,8 +10,9 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap uap3 com desktop3 uap5 rescap">
 
-  <!-- Identity: set Name/Publisher from Partner Center before Store submission. The build
-       script swaps Publisher to the dev cert subject for sideload builds. -->
+  <!-- Identity: the real Partner Center values, used for Store (-NoSign) builds. Sideload (signed)
+       builds swap Name->ImmichDrive and Publisher->the dev cert subject so they form a stable local
+       package family that updates in place. -->
   <Identity
     Name="27766TechnicallyReal.ImmichDrive"
     Publisher="CN=C21E6CEF-D0D1-4497-93F9-3718D054DA0E"
