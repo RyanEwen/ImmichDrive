@@ -44,7 +44,8 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <Button Grid.Column="0" x:Name="OpenFolderButton" Click="OpenFolderButton_Click"
-                    HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" Content="Open drive folder" />
+                    HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}"
+                    Content="Open folder" ToolTipService.ToolTip="Open drive folder" />
             <Button Grid.Column="1" x:Name="OpenImmichButton" Click="OpenImmichButton_Click"
                     HorizontalAlignment="Stretch" Content="Open Immich" />
         </Grid>
