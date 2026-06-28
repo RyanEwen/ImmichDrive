@@ -76,7 +76,9 @@ public sealed partial class MainWindow : Window
     private void AddTrayIcon()
     {
         if (_hIcon != IntPtr.Zero) { DestroyIcon(_hIcon); _hIcon = IntPtr.Zero; }
-        _hIcon = LoadImage(IntPtr.Zero, App.IconPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
+        // Load a 32px frame (not 16): the shell downscales it to the DPI-scaled tray slot, which
+        // stays crisp. Loading 16 forces an upscale on high-DPI displays -> blurry.
+        _hIcon = LoadImage(IntPtr.Zero, App.IconPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
         var data = NewIconData();
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = WmTrayCallback;

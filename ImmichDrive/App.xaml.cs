@@ -17,8 +17,13 @@ public partial class App : Application
 
     public static DispatcherQueue MainDispatcherQueue { get; private set; } = null!;
 
-    /// <summary>Path to the app icon (used for window/title-bar/tray/about images).</summary>
+    /// <summary>Path to the multi-size app icon (.ico) for Win32 window/tray/taskbar surfaces.</summary>
     public static string IconPath => Path.Combine(AppContext.BaseDirectory, "Resources", "ImmichDrive.ico");
+
+    /// <summary>Path to a high-res PNG of the app icon. XAML <c>Image</c> elements decode this and
+    /// scale it down crisply for whatever DPI they render at — a <c>BitmapImage</c> over the .ico
+    /// would grab the tiny 16px frame and upscale it (blurry).</summary>
+    public static string IconImagePath => Path.Combine(AppContext.BaseDirectory, "Resources", "ImmichDrive.png");
 
     // Single resident instance — a second launch just surfaces settings on the first.
     private static readonly Mutex Singleton = new(true, "ImmichDrive.Instance");

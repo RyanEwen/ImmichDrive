@@ -123,7 +123,7 @@ public sealed partial class SettingsWindow : Window
 
     private static void SetAppWindowIcon(AppWindow appWindow, string icoPath)
     {
-        var hIcon = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
+        var hIcon = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 64, 64, LR_LOADFROMFILE);
         if (hIcon == IntPtr.Zero) return;
         try { appWindow.SetIcon(Microsoft.UI.Win32Interop.GetIconIdFromIcon(hIcon)); }
         finally { DestroyIcon(hIcon); }
@@ -133,15 +133,18 @@ public sealed partial class SettingsWindow : Window
     {
         if (_hIconSmall != IntPtr.Zero) { DestroyIcon(_hIconSmall); _hIconSmall = IntPtr.Zero; }
         if (_hIconBig != IntPtr.Zero) { DestroyIcon(_hIconBig); _hIconBig = IntPtr.Zero; }
-        _hIconSmall = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 16, 16, LR_LOADFROMFILE);
-        _hIconBig = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+        // Load generous sizes so the shell downscales (crisp) at any DPI rather than upscaling a
+        // 16/32 frame: small is drawn at 16*scale, big (taskbar/alt-tab) at 32*scale.
+        _hIconSmall = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+        _hIconBig = LoadImage(IntPtr.Zero, icoPath, IMAGE_ICON, 64, 64, LR_LOADFROMFILE);
         if (_hIconSmall != IntPtr.Zero) SendMessage(hwnd, WM_SETICON, new IntPtr(ICON_SMALL), _hIconSmall);
         if (_hIconBig != IntPtr.Zero) SendMessage(hwnd, WM_SETICON, new IntPtr(ICON_BIG), _hIconBig);
     }
 
     private void LoadTitleBarIcon(string icoPath)
     {
-        try { TitleBarIcon.Source = new BitmapImage(new Uri(icoPath)); }
+        // Use the high-res PNG (not the .ico) so it scales down crisply to the 16px title bar.
+        try { TitleBarIcon.Source = new BitmapImage(new Uri(App.IconImagePath)); }
         catch { /* leave empty */ }
     }
 

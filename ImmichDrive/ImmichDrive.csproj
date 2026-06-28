@@ -39,12 +39,16 @@
   <ItemGroup>
     <None Remove="NLog.config" />
     <None Remove="Resources\ImmichDrive.ico" />
+    <None Remove="Resources\ImmichDrive.png" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="NLog.config">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Resources\ImmichDrive.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\ImmichDrive.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

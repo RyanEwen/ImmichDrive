@@ -92,48 +92,65 @@ function New-Master([int]$M) {
     return $bmp
 }
 
-function New-Resized($master, [int]$w, [int]$h) {
+function New-Resized($src, [int]$w, [int]$h) {
     $bmp = New-Object System.Drawing.Bitmap($w, $h, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
     $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $g.Clear([System.Drawing.Color]::Transparent)
-    $g.DrawImage($master, 0, 0, $w, $h)
+    $g.DrawImage($src, 0, 0, $w, $h)
     $g.Dispose()
     return $bmp
 }
 
-function Save-Square($master, [int]$size, [string]$name) {
-    $bmp = New-Resized $master $size $size
-    $bmp.Save((Join-Path $imagesDir $name), [System.Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
+# Render each asset at its OWN size with 4x supersampling (render large, shrink once). This keeps
+# small frames crisp -- downscaling a single 1024 master all the way to 16/24 px blurs them.
+$SS = 4
+function New-Crisp([int]$size) {
+    $m = New-Master ($size * $SS)
+    $r = New-Resized $m $size $size
+    $m.Dispose()
+    return $r
+}
+
+function Save-Square([int]$size, [string]$name) {
+    $b = New-Crisp $size
+    $b.Save((Join-Path $imagesDir $name), [System.Drawing.Imaging.ImageFormat]::Png)
+    $b.Dispose()
     Write-Output "  $name ($size x $size)"
 }
 
-function Save-Splash($master, [int]$w, [int]$h, [string]$name) {
+function Save-Splash([int]$w, [int]$h, [string]$name) {
     $bmp = New-Object System.Drawing.Bitmap($w, $h, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
     $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $g.Clear([System.Drawing.Color]::Transparent)
     $badge = [int]($h * 0.5); $bx = [int](($w - $badge) / 2); $by = [int](($h - $badge) / 2)
-    $g.DrawImage($master, $bx, $by, $badge, $badge)
-    $g.Dispose()
+    $bb = New-Crisp $badge
+    $g.DrawImage($bb, $bx, $by, $badge, $badge)
+    $bb.Dispose(); $g.Dispose()
     $bmp.Save((Join-Path $imagesDir $name), [System.Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
     Write-Output "  $name ($w x $h)"
 }
 
-function Save-Ico($master, [int[]]$sizes, [string]$path) {
+function Save-Png([int]$size, [string]$path) {
+    $b = New-Crisp $size
+    $b.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+    $b.Dispose()
+    Write-Output "  $(Split-Path $path -Leaf) ($size x $size)"
+}
+
+function Save-Ico([int[]]$sizes, [string]$path) {
     $blobs = @()
     foreach ($s in $sizes) {
-        $bmp = New-Resized $master $s $s
+        $b = New-Crisp $s
         $ms = New-Object System.IO.MemoryStream
-        $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+        $b.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
         $blobs += ,($ms.ToArray())
-        $ms.Dispose(); $bmp.Dispose()
+        $ms.Dispose(); $b.Dispose()
     }
     $fs = [System.IO.File]::Create($path)
     $bw = New-Object System.IO.BinaryWriter($fs)
@@ -152,21 +169,18 @@ function Save-Ico($master, [int[]]$sizes, [string]$path) {
     Write-Output "  ImmichDrive.ico ($($sizes -join ', '))"
 }
 
-Write-Output "Rendering master icon..."
-$master = New-Master 1024
-
 Write-Output "Generating MSIX images:"
-Save-Square $master 50  "StoreLogo.png"
-Save-Square $master 44  "Square44x44Logo.png"
-Save-Square $master 88  "Square44x44Logo.scale-200.png"
-Save-Square $master 24  "Square44x44Logo.targetsize-24_altform-unplated.png"
-Save-Square $master 150 "Square150x150Logo.png"
-Save-Square $master 300 "Square150x150Logo.scale-200.png"
-Save-Splash $master 620 300  "SplashScreen.png"
-Save-Splash $master 1240 600 "SplashScreen.scale-200.png"
+Save-Square 50  "StoreLogo.png"
+Save-Square 44  "Square44x44Logo.png"
+Save-Square 88  "Square44x44Logo.scale-200.png"
+Save-Square 24  "Square44x44Logo.targetsize-24_altform-unplated.png"
+Save-Square 150 "Square150x150Logo.png"
+Save-Square 300 "Square150x150Logo.scale-200.png"
+Save-Splash 620 300  "SplashScreen.png"
+Save-Splash 1240 600 "SplashScreen.scale-200.png"
 
-Write-Output "Generating app icon:"
-Save-Ico $master @(16, 24, 32, 48, 64, 128, 256) $icoPath
+Write-Output "Generating app icon + in-app PNG:"
+Save-Ico @(16, 20, 24, 32, 40, 48, 64, 128, 256) $icoPath
+Save-Png 256 (Join-Path $repoRoot "ImmichDrive\Resources\ImmichDrive.png")
 
-$master.Dispose()
 Write-Output "Done."

@@ -48,8 +48,8 @@ public sealed partial class StatusFlyout : Window
         int round = DWMWCP_ROUND;
         DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
 
-        if (File.Exists(App.IconPath))
-            try { Icon.Source = new BitmapImage(new Uri(App.IconPath)); } catch { }
+        if (File.Exists(App.IconImagePath))
+            try { Icon.Source = new BitmapImage(new Uri(App.IconImagePath)); } catch { }
 
         Classes.ThemeManager.ApplySavedTheme(this);
         DriveManager.Current.StatusChanged += OnStatusChanged;
