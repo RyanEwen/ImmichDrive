@@ -46,6 +46,12 @@ public sealed partial class StatusFlyout : Window
         ExtendsContentIntoTitleBar = true;
         SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
 
+        // Rounded corners with NO border line (the default 1px DWM border is what looked off).
+        int round = DWMWCP_ROUND;
+        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+        int noBorder = DWMWA_COLOR_NONE;
+        DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref noBorder, sizeof(int));
+
         if (File.Exists(App.IconPath))
             try { Icon.Source = new BitmapImage(new Uri(App.IconPath)); } catch { }
 
