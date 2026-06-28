@@ -35,22 +35,18 @@ public sealed partial class StatusFlyout : Window
         _appWindow = AppWindow.GetFromWindowId(Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd));
         _appWindow.IsShownInSwitchers = false;
 
-        if (_appWindow.Presenter is OverlappedPresenter p)
-        {
-            p.SetBorderAndTitleBar(false, false);
-            p.IsResizable = false;
-            p.IsMaximizable = false;
-            p.IsMinimizable = false;
-            p.IsAlwaysOnTop = true;
-        }
+        // Match LittleLauncher's flyout: a context-menu presenter (borderless, top-most,
+        // light-dismiss), Desktop Acrylic, and OS rounded corners — no manual border color.
+        var presenter = OverlappedPresenter.CreateForContextMenu();
+        presenter.SetBorderAndTitleBar(false, false);
+        presenter.IsAlwaysOnTop = true;
+        _appWindow.SetPresenter(presenter);
+
         ExtendsContentIntoTitleBar = true;
         SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
 
-        // Rounded corners with NO border line (the default 1px DWM border is what looked off).
         int round = DWMWCP_ROUND;
         DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-        int noBorder = DWMWA_COLOR_NONE;
-        DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref noBorder, sizeof(int));
 
         if (File.Exists(App.IconPath))
             try { Icon.Source = new BitmapImage(new Uri(App.IconPath)); } catch { }

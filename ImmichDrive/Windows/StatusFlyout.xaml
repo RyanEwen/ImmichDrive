@@ -3,7 +3,7 @@
     x:Class="ImmichDrive.Windows.StatusFlyout"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid x:Name="Root" Padding="18,16,18,18" RowSpacing="12" Width="300">
+    <Grid x:Name="Root" Padding="18,16,18,18" RowSpacing="12" Width="300" Background="Transparent">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
