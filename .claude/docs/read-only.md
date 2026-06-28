@@ -28,6 +28,13 @@ Applied on connect on a background thread (icacls over ~47k files ≈ 4s). The d
 read-only (no setting) — the sync is one-way, so local writes would only be silently reverted or
 lost. `RemoveReadOnly` is still used on disconnect and before a layout-migration wipe.
 
+**Connect ordering:** because the deny persists on disk across sessions, connect does
+`RemoveReadOnly` → `SetFolderIcon` (writes the root `desktop.ini` that gives the folder the app icon
+in Explorer; needs the folder writable) → `ApplyReadOnly`. The desktop.ini then inherits the deny;
+it's rewritten on each connect (so an icon change propagates). The root folder also carries the
+ReadOnly *attribute* (Explorer only reads desktop.ini on ReadOnly/System folders) — that's just the
+"customized folder" flag and doesn't affect the ACL.
+
 ## Upload folder
 
 `DriveSecurity.EnsureUploadWritable` creates `Upload\` and runs `icacls /inheritance:r` + `/grant …F`

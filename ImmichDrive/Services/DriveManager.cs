@@ -147,6 +147,11 @@ public sealed class DriveManager
         {
             try
             {
+                // Give the root folder our icon in Explorer (writes desktop.ini) while it's still
+                // writable — the deny ACE persists from a prior session, so lift it first.
+                DriveSecurity.RemoveReadOnly(syncRoot);
+                DriveSecurity.SetFolderIcon(syncRoot, Path.Combine(StableIconDir, "ImmichDrive.ico"));
+
                 DriveSecurity.ApplyReadOnly(syncRoot);          // the drive is always read-only
                 DriveSecurity.EnsureUploadWritable(uploadDir);  // …except the Upload folder
             }
@@ -216,11 +221,15 @@ public sealed class DriveManager
     /// pointing the registration there leaves a broken/generic icon after an update. We copy the icon
     /// to a fixed location instead.
     /// </summary>
+    /// <summary>Fixed (version-independent) folder holding the sync-root icon, referenced by both the
+    /// sync-root registration and the root folder's desktop.ini.</summary>
+    private const string StableIconDir = @"C:\ProgramData\ImmichDrive";
+
     private static string ResolveStableIcon()
     {
         try
         {
-            string dir = @"C:\ProgramData\ImmichDrive";
+            string dir = StableIconDir;
             Directory.CreateDirectory(dir);
             string dst = Path.Combine(dir, "ImmichDrive.ico");
             string src = Path.Combine(AppContext.BaseDirectory, "Resources", "ImmichDrive.ico");

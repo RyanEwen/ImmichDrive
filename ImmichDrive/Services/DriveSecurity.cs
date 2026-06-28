@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 
@@ -12,9 +13,12 @@ namespace ImmichDrive.Services;
 /// way OneDrive's read-only folders behave). The <c>Upload</c> folder is excluded so the user can
 /// drop files there. See <c>.claude/docs/read-only.md</c>.
 /// </summary>
-public static class DriveSecurity
+public static partial class DriveSecurity
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
+    [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial void SHChangeNotify(int wEventId, uint uFlags, string dwItem1, IntPtr dwItem2);
 
     // Deny: Delete, DeleteChild, WriteData/AddFile, WriteAttributes, WriteEA. We intentionally do NOT
     // deny AddSubdirectory (AD) so the provider can still create month/album/partner folders with a
@@ -45,6 +49,28 @@ public static class DriveSecurity
         Directory.CreateDirectory(uploadPath);
         RunIcacls($"\"{uploadPath}\" /inheritance:r");
         RunIcacls($"\"{uploadPath}\" /grant *{CurrentSid}:(OI)(CI)F");
+    }
+
+    /// <summary>
+    /// Gives the sync-root folder a custom icon in Explorer's file listing / This PC by writing a
+    /// <c>desktop.ini</c> that points at the app .ico and flagging the folder ReadOnly (Explorer only
+    /// honors desktop.ini on ReadOnly/System folders). Must run while the folder is writable — the
+    /// read-only deny ACE blocks the write — so call this after <see cref="RemoveReadOnly"/> and before
+    /// <see cref="ApplyReadOnly"/>.
+    /// </summary>
+    public static void SetFolderIcon(string folder, string icoPath)
+    {
+        try
+        {
+            string ini = Path.Combine(folder, "desktop.ini");
+            if (File.Exists(ini)) File.SetAttributes(ini, FileAttributes.Normal);
+            File.WriteAllText(ini, $"[.ShellClassInfo]\r\nIconResource={icoPath},0\r\nConfirmFileOp=0\r\n");
+            File.SetAttributes(ini, FileAttributes.Hidden | FileAttributes.System);
+            new DirectoryInfo(folder).Attributes |= FileAttributes.ReadOnly;
+            SHChangeNotify(0x00001000, 0x0005, folder, IntPtr.Zero); // SHCNE_UPDATEDIR, SHCNF_PATHW
+            Logger.Info("Set folder icon on {0}", folder);
+        }
+        catch (Exception ex) { Logger.Warn(ex, "SetFolderIcon failed for {0}", folder); }
     }
 
     /// <summary>Grants the current user delete on a single file so the provider can prune it despite the deny.</summary>
