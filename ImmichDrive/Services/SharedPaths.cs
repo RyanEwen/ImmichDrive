@@ -4,9 +4,13 @@ namespace ImmichDrive.Services;
 
 /// <summary>
 /// Resolves the data directory shared between the resident app and the out-of-process
-/// thumbnail shell extension. When the app is packaged (MSIX) its <c>%AppData%</c> is
-/// redirected per-package, so the app drops a breadcrumb under (non-redirected)
-/// <c>%LocalAppData%\ImmichDrive</c> pointing at the real data dir; the extension reads it.
+/// thumbnail shell extension. When the app is packaged (MSIX) <b>both</b> <c>%AppData%</c> and
+/// <c>%LocalAppData%</c> are redirected per-package into <c>…\Packages\&lt;family&gt;\LocalCache\…</c>,
+/// so each package keeps its own data dir. The app drops a breadcrumb at a <b>fixed, never-redirected</b>
+/// machine location — <c>C:\ProgramData\ImmichDrive\location.txt</c> — pointing at its real (redirected)
+/// data dir; the thumbnail process reads it from there regardless of whether the shell launched it with
+/// package identity. (An earlier version used <c>%LocalAppData%</c>, which is itself redirected, so the
+/// breadcrumb was invisible across identities and thumbnails silently failed.)
 /// WinUI-free and trim-safe — linked into the thumbnail extension.
 /// </summary>
 public static class SharedPaths
@@ -16,8 +20,10 @@ public static class SharedPaths
     private static string DefaultAppDataDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppFolderName);
 
+    // CommonApplicationData = C:\ProgramData (machine-wide, NOT package-redirected), so the app and the
+    // thumbnail process resolve the exact same absolute path even with different/no package identity.
     private static string BreadcrumbDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppFolderName);
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), AppFolderName);
 
     private static string BreadcrumbPath => Path.Combine(BreadcrumbDir, "location.txt");
 

@@ -1,5 +1,7 @@
-# Generates the MSIX visual assets AND the app .ico from one source: a rounded 5-blade
-# camera aperture in Immich's logo colors, on a dark slate tile.
+# Generates the MSIX visual assets AND the app .ico from one source: a 5-blade camera iris in
+# Immich's logo colors, on a TRANSPARENT background (no tile). The blades are angled off-center
+# into a small rotated-pentagon opening, and each blade is outlined so the black reads as the
+# space between the colors (like the Immich logo's petals).
 # Run with Windows PowerShell: powershell.exe -NoProfile -File generate-msix-images.ps1
 # ASCII only (Windows PowerShell 5.1 reads BOM-less .ps1 as ANSI).
 Add-Type -AssemblyName System.Drawing
@@ -9,18 +11,23 @@ $imagesDir = Join-Path $PSScriptRoot "Images"
 $icoPath   = Join-Path $repoRoot "ImmichDrive\Resources\ImmichDrive.ico"
 New-Item -ItemType Directory -Force $imagesDir | Out-Null
 
-# Dark slate tile (#1d2230). The center hole is this same color so it vanishes into the tile,
-# leaving a clean opening where the five bright blades meet.
-$tile = [System.Drawing.Color]::FromArgb(255, 29, 34, 48)
-
-# Aperture outer vertices in unit space (radius 46, centered at 0,0), as flat coord arrays.
+# Aperture outer vertices in unit space (radius 46, centered at 0,0), at angles -90 + 72*i.
 $Vx = @(0.0, 43.7, 27.0, -27.0, -43.7)
 $Vy = @(-46.0, -14.2, 37.2, 37.2, -14.2)
 
-# Immich logo colors, one per blade (red, amber, green, blue, pink).
-$colR = @(250, 255, 24, 30, 237)
-$colG = @(41, 180, 194, 131, 121)
-$colB = @(33, 0, 73, 247, 181)
+# Inner opening: a small pentagon whose vertices are twisted off the radial direction, so each
+# blade seam runs A_i -> B_i at an angle instead of straight to the center (a real iris).
+$Bx = @(); $By = @()
+for ($i = 0; $i -lt 5; $i++) {
+    $ang = (-90.0 + 72.0 * $i + 40.0) * [math]::PI / 180.0   # +40 deg twist
+    $Bx += 8.0 * [math]::Cos($ang)                            # opening radius 8
+    $By += 8.0 * [math]::Sin($ang)
+}
+
+# Immich logo colors, one per blade (amber, green, blue, pink, red).
+$colR = @(255, 24, 30, 237, 250)
+$colG = @(180, 194, 131, 121, 41)
+$colB = @(0, 73, 247, 181, 33)
 
 function New-AperturePath([double]$cx, [double]$cy, [double]$f) {
     $t = 11.0
@@ -52,42 +59,54 @@ function New-AperturePath([double]$cx, [double]$cy, [double]$f) {
 
 function Draw-Aperture($g, [double]$cx, [double]$cy, [double]$S) {
     $f = $S / 46.0
-    $rp = New-AperturePath $cx $cy $f
+    $black = [System.Drawing.Color]::FromArgb(255, 0, 0, 0)
+    $ow = [single]([math]::Max(1.0, 2.0 * $f))   # outline width = the black gap between colors
+    $rp = New-AperturePath $cx $cy $f            # rounded pentagon (outer silhouette)
+
+    $pen = New-Object System.Drawing.Pen($black, $ow)
+    $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
+
+    # Blades clipped to the rounded pentagon. Each blade is the quad A_i, A_{i+1}, B_{i+1}, B_i;
+    # filling + black-outlining each one makes the black read as the gap between the colors.
     $g.SetClip($rp)
     for ($i = 0; $i -lt 5; $i++) {
         $j = ($i + 1) % 5
-        $pts = New-Object 'System.Drawing.PointF[]' 3
-        $pts[0] = New-Object System.Drawing.PointF([single]$cx, [single]$cy)
-        $pts[1] = New-Object System.Drawing.PointF([single]($cx + $Vx[$i] * $f), [single]($cy + $Vy[$i] * $f))
-        $pts[2] = New-Object System.Drawing.PointF([single]($cx + $Vx[$j] * $f), [single]($cy + $Vy[$j] * $f))
+        $pts = New-Object 'System.Drawing.PointF[]' 4
+        $pts[0] = New-Object System.Drawing.PointF([single]($cx + $Vx[$i] * $f), [single]($cy + $Vy[$i] * $f))
+        $pts[1] = New-Object System.Drawing.PointF([single]($cx + $Vx[$j] * $f), [single]($cy + $Vy[$j] * $f))
+        $pts[2] = New-Object System.Drawing.PointF([single]($cx + $Bx[$j] * $f), [single]($cy + $By[$j] * $f))
+        $pts[3] = New-Object System.Drawing.PointF([single]($cx + $Bx[$i] * $f), [single]($cy + $By[$i] * $f))
         $b = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, $colR[$i], $colG[$i], $colB[$i]))
         $g.FillPolygon($b, $pts); $b.Dispose()
+        $g.DrawPolygon($pen, $pts)
     }
-    $g.ResetClip(); $rp.Dispose()
-    $hb = New-Object System.Drawing.SolidBrush($tile)
-    $hr = 14.0 * $f
-    $g.FillEllipse($hb, [single]($cx - $hr), [single]($cy - $hr), [single]($hr * 2), [single]($hr * 2))
-    $hb.Dispose()
+
+    # The opening (small inner pentagon), filled black.
+    $inner = New-Object 'System.Drawing.PointF[]' 5
+    for ($i = 0; $i -lt 5; $i++) {
+        $inner[$i] = New-Object System.Drawing.PointF([single]($cx + $Bx[$i] * $f), [single]($cy + $By[$i] * $f))
+    }
+    $blk = New-Object System.Drawing.SolidBrush($black)
+    $g.FillPolygon($blk, $inner); $blk.Dispose()
+    $pen.Dispose()
+    $g.ResetClip()
+
+    # Outer rim outline (rounded pentagon), so the edge border matches the inner gaps.
+    $rim = New-Object System.Drawing.Pen($black, $ow)
+    $rim.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
+    $g.DrawPath($rim, $rp)
+    $rim.Dispose(); $rp.Dispose()
 }
 
-# Render the icon once at high resolution; every asset is a high-quality downscale of this
-# (supersampling smooths the clipped aperture edge, which GDI+ region-clipping aliases).
+# Render the icon once at high resolution on a TRANSPARENT canvas; every asset is a high-quality
+# downscale of this (supersampling smooths the clipped aperture edge that GDI+ region-clipping aliases).
 function New-Master([int]$M) {
     $bmp = New-Object System.Drawing.Bitmap($M, $M, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
     $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $g.Clear([System.Drawing.Color]::Transparent)
-    $rad = [double]$M * 0.18; $d = $rad * 2
-    $tp = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $tp.AddArc(0, 0, $d, $d, 180, 90)
-    $tp.AddArc($M - $d, 0, $d, $d, 270, 90)
-    $tp.AddArc($M - $d, $M - $d, $d, $d, 0, 90)
-    $tp.AddArc(0, $M - $d, $d, $d, 90, 90)
-    $tp.CloseFigure()
-    $tb = New-Object System.Drawing.SolidBrush($tile)
-    $g.FillPath($tb, $tp); $tb.Dispose(); $tp.Dispose()
-    Draw-Aperture $g ([double]$M / 2) ([double]$M / 2) ([double]$M * 0.34)
+    Draw-Aperture $g ([double]$M / 2) ([double]$M / 2) ([double]$M * 0.45)
     $g.Dispose()
     return $bmp
 }
