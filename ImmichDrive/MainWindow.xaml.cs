@@ -83,7 +83,7 @@ public sealed partial class MainWindow : Window
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = WmTrayCallback;
         data.hIcon = _hIcon;
-        data.szTip = "ImmichDrive";
+        data.szTip = "Drive for Immich";
         _trayAdded = Shell_NotifyIcon(NIM_ADD, ref data);
     }
 
@@ -94,11 +94,11 @@ public sealed partial class MainWindow : Window
         string tip = dm.Status switch
         {
             DriveStatus.Online when dm.Progress.Total > 0 && dm.Progress.Done < dm.Progress.Total
-                => $"ImmichDrive — syncing {dm.Progress.Done}/{dm.Progress.Total}",
-            DriveStatus.Online => $"ImmichDrive — online",
-            DriveStatus.Connecting => "ImmichDrive — connecting…",
-            DriveStatus.Error => $"ImmichDrive — {dm.StatusDetail}",
-            _ => "ImmichDrive — disconnected",
+                => $"Drive for Immich — syncing {dm.Progress.Done}/{dm.Progress.Total}",
+            DriveStatus.Online => $"Drive for Immich — online",
+            DriveStatus.Connecting => "Drive for Immich — connecting…",
+            DriveStatus.Error => $"Drive for Immich — {dm.StatusDetail}",
+            _ => "Drive for Immich — disconnected",
         };
         var data = NewIconData();
         data.uFlags = NIF_TIP;

@@ -6,7 +6,7 @@
     <ScrollViewer Padding="32,16,32,32">
         <StackPanel Spacing="16" MaxWidth="760" HorizontalAlignment="Left">
             <TextBlock Text="Connection" Style="{StaticResource TitleTextBlockStyle}" />
-            <TextBlock Text="Point ImmichDrive at your Immich server." Opacity="0.7" Margin="0,-8,0,0" />
+            <TextBlock Text="Point the drive at your Immich server." Opacity="0.7" Margin="0,-8,0,0" />
 
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"

@@ -20,7 +20,7 @@
                 </Grid.ColumnDefinitions>
                 <Image x:Name="AppIcon" Width="32" Height="32" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1">
-                    <TextBlock Text="ImmichDrive" FontSize="16" FontWeight="Medium"/>
+                    <TextBlock Text="Drive for Immich" FontSize="16" FontWeight="Medium"/>
                     <TextBlock x:Name="VersionText" FontSize="12" Opacity="0.6"/>
                     <TextBlock Text="Your Immich photo library as a native Windows cloud drive — browse by date, with thumbnails, without filling up your disk."
                                FontSize="13" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,0"/>
@@ -40,7 +40,7 @@
                 <FontIcon Glyph="&#xE753;" FontSize="24" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1">
                     <TextBlock Text="How it works" FontSize="14" FontWeight="Medium"/>
-                    <TextBlock Text="Uses the Windows Cloud Files API to show your photos as on-demand placeholder files. They appear in File Explorer with real thumbnails but take up no space until you open one — then ImmichDrive streams just that file from your server."
+                    <TextBlock Text="Uses the Windows Cloud Files API to show your photos as on-demand placeholder files. They appear in File Explorer with real thumbnails but take up no space until you open one — then Drive for Immich streams just that file from your server."
                                FontSize="12" Opacity="0.5" TextWrapping="Wrap"/>
                 </StackPanel>
             </Grid>

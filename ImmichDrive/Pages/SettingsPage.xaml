@@ -40,7 +40,7 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
                         <TextBlock Text="Start at sign-in" FontWeight="SemiBold" />
-                        <TextBlock Text="Keep the drive online by launching ImmichDrive when you sign in."
+                        <TextBlock Text="Keep the drive online by launching Drive for Immich when you sign in."
                                    Opacity="0.7" TextWrapping="Wrap" />
                     </StackPanel>
                     <ToggleSwitch Grid.Column="1" x:Name="StartupToggle" VerticalAlignment="Center" MinWidth="0"

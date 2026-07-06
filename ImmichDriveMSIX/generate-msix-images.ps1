@@ -1,7 +1,7 @@
-# Generates the MSIX visual assets AND the app .ico from one source: a 5-blade camera iris in
-# Immich's logo colors, on a TRANSPARENT background (no tile). The blades are angled off-center
-# into a small rotated-pentagon opening, and each blade is outlined so the black reads as the
-# space between the colors (like the Immich logo's petals).
+# Generates the MSIX visual assets AND the app .ico from one source: the "Photo Panes" mark --
+# a dark rounded tile holding a 2x2 grid where three panes are tiny photo scenes (sun + mountains)
+# and the fourth is a white cloud sized to the pane column (the cloud-backed pane = a placeholder).
+# Drawn on a TRANSPARENT canvas; the rounded dark tile is part of the mark.
 # Run with Windows PowerShell: powershell.exe -NoProfile -File generate-msix-images.ps1
 # ASCII only (Windows PowerShell 5.1 reads BOM-less .ps1 as ANSI).
 Add-Type -AssemblyName System.Drawing
@@ -11,102 +11,84 @@ $imagesDir = Join-Path $PSScriptRoot "Images"
 $icoPath   = Join-Path $repoRoot "ImmichDrive\Resources\ImmichDrive.ico"
 New-Item -ItemType Directory -Force $imagesDir | Out-Null
 
-# Aperture outer vertices in unit space (radius 46, centered at 0,0), at angles -90 + 72*i.
-$Vx = @(0.0, 43.7, 27.0, -27.0, -43.7)
-$Vy = @(-46.0, -14.2, 37.2, 37.2, -14.2)
-
-# Inner opening: a small pentagon whose vertices are twisted off the radial direction, so each
-# blade seam runs A_i -> B_i at an angle instead of straight to the center (a real iris).
-$Bx = @(); $By = @()
-for ($i = 0; $i -lt 5; $i++) {
-    $ang = (-90.0 + 72.0 * $i + 40.0) * [math]::PI / 180.0   # +40 deg twist
-    $Bx += 8.0 * [math]::Cos($ang)                            # opening radius 8
-    $By += 8.0 * [math]::Sin($ang)
+function New-Color([int]$r, [int]$g, [int]$b) {
+    return [System.Drawing.Color]::FromArgb(255, $r, $g, $b)
 }
 
-# Immich logo colors, one per blade (amber, green, blue, pink, red).
-$colR = @(255, 24, 30, 237, 250)
-$colG = @(180, 194, 131, 121, 41)
-$colB = @(0, 73, 247, 181, 33)
+$colTile   = New-Color 30 41 59     # 1E293B dark slate tile
+$colCloud  = New-Color 255 255 255
 
-function New-AperturePath([double]$cx, [double]$cy, [double]$f) {
-    $t = 11.0
-    $Ax = @(); $Ay = @(); $Bx = @(); $By = @()
-    for ($i = 0; $i -lt 5; $i++) {
-        $p = ($i + 4) % 5; $n = ($i + 1) % 5
-        $dpx = $Vx[$p] - $Vx[$i]; $dpy = $Vy[$p] - $Vy[$i]; $lp = [math]::Sqrt($dpx * $dpx + $dpy * $dpy)
-        $dnx = $Vx[$n] - $Vx[$i]; $dny = $Vy[$n] - $Vy[$i]; $ln = [math]::Sqrt($dnx * $dnx + $dny * $dny)
-        $Bx += $Vx[$i] + $t * $dpx / $lp; $By += $Vy[$i] + $t * $dpy / $lp
-        $Ax += $Vx[$i] + $t * $dnx / $ln; $Ay += $Vy[$i] + $t * $dny / $ln
-    }
+# Per-pane palette: background, sun (null = none), mountain.
+$panes = @(
+    @{ X = 20; Y = 20; Bg = (New-Color 125 211 252); Sun = @(40, 27, 3.0);   SunCol = (New-Color 253 224 71);
+       Mtn = @(20,46, 30,32, 36,39, 40,35, 46,46); MtnCol = (New-Color 3 105 161) }    # day
+    @{ X = 50; Y = 20; Bg = (New-Color 253 186 116); Sun = @(68, 28, 3.5);   SunCol = (New-Color 245 158 11);
+       Mtn = @(50,46, 60,33, 66,40, 70,36, 76,46); MtnCol = (New-Color 154 52 18) }    # sunset
+    @{ X = 20; Y = 50; Bg = (New-Color 167 243 208); Sun = $null;            SunCol = $null;
+       Mtn = @(20,76, 28,62, 34,69, 38,64, 46,76); MtnCol = (New-Color 4 120 87) }     # green hills
+)
+
+# All geometry lives in a 96x96 unit space; $f scales it to the render size.
+function New-RoundedRect([double]$x, [double]$y, [double]$w, [double]$h, [double]$r, [double]$f) {
     $gp = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $curx = $Ax[0]; $cury = $Ay[0]
-    for ($k = 1; $k -le 5; $k++) {
-        $i = $k % 5
-        $gp.AddLine([single]($cx + $curx * $f), [single]($cy + $cury * $f), [single]($cx + $Bx[$i] * $f), [single]($cy + $By[$i] * $f))
-        $c1x = $Bx[$i] + (2.0 / 3.0) * ($Vx[$i] - $Bx[$i]); $c1y = $By[$i] + (2.0 / 3.0) * ($Vy[$i] - $By[$i])
-        $c2x = $Ax[$i] + (2.0 / 3.0) * ($Vx[$i] - $Ax[$i]); $c2y = $Ay[$i] + (2.0 / 3.0) * ($Vy[$i] - $Ay[$i])
-        $gp.AddBezier(
-            [single]($cx + $Bx[$i] * $f), [single]($cy + $By[$i] * $f),
-            [single]($cx + $c1x * $f), [single]($cy + $c1y * $f),
-            [single]($cx + $c2x * $f), [single]($cy + $c2y * $f),
-            [single]($cx + $Ax[$i] * $f), [single]($cy + $Ay[$i] * $f))
-        $curx = $Ax[$i]; $cury = $Ay[$i]
-    }
+    $x *= $f; $y *= $f; $w *= $f; $h *= $f; $d = 2.0 * $r * $f
+    $gp.AddArc([single]$x, [single]$y, [single]$d, [single]$d, 180, 90)
+    $gp.AddArc([single]($x + $w - $d), [single]$y, [single]$d, [single]$d, 270, 90)
+    $gp.AddArc([single]($x + $w - $d), [single]($y + $h - $d), [single]$d, [single]$d, 0, 90)
+    $gp.AddArc([single]$x, [single]($y + $h - $d), [single]$d, [single]$d, 90, 90)
     $gp.CloseFigure()
     return $gp
 }
 
-function Draw-Aperture($g, [double]$cx, [double]$cy, [double]$S) {
-    $f = $S / 46.0
-    $black = [System.Drawing.Color]::FromArgb(255, 0, 0, 0)
-    $ow = [single]([math]::Max(1.0, 2.0 * $f))   # outline width = the black gap between colors
-    $rp = New-AperturePath $cx $cy $f            # rounded pentagon (outer silhouette)
+function Fill-Circle($g, $brush, [double]$cx, [double]$cy, [double]$r, [double]$f) {
+    $g.FillEllipse($brush, [single](($cx - $r) * $f), [single](($cy - $r) * $f), [single](2.0 * $r * $f), [single](2.0 * $r * $f))
+}
 
-    $pen = New-Object System.Drawing.Pen($black, $ow)
-    $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
+function Draw-Mark($g, [double]$f) {
+    # Tile
+    $tile = New-RoundedRect 0 0 96 96 22 $f
+    $b = New-Object System.Drawing.SolidBrush($colTile)
+    $g.FillPath($b, $tile); $b.Dispose(); $tile.Dispose()
 
-    # Blades clipped to the rounded pentagon. Each blade is the quad A_i, A_{i+1}, B_{i+1}, B_i;
-    # filling + black-outlining each one makes the black read as the gap between the colors.
-    $g.SetClip($rp)
-    for ($i = 0; $i -lt 5; $i++) {
-        $j = ($i + 1) % 5
-        $pts = New-Object 'System.Drawing.PointF[]' 4
-        $pts[0] = New-Object System.Drawing.PointF([single]($cx + $Vx[$i] * $f), [single]($cy + $Vy[$i] * $f))
-        $pts[1] = New-Object System.Drawing.PointF([single]($cx + $Vx[$j] * $f), [single]($cy + $Vy[$j] * $f))
-        $pts[2] = New-Object System.Drawing.PointF([single]($cx + $Bx[$j] * $f), [single]($cy + $By[$j] * $f))
-        $pts[3] = New-Object System.Drawing.PointF([single]($cx + $Bx[$i] * $f), [single]($cy + $By[$i] * $f))
-        $b = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, $colR[$i], $colG[$i], $colB[$i]))
-        $g.FillPolygon($b, $pts); $b.Dispose()
-        $g.DrawPolygon($pen, $pts)
+    # Three photo panes, scenes clipped to each pane's rounded rect
+    foreach ($p in $panes) {
+        $path = New-RoundedRect $p.X $p.Y 26 26 6 $f
+        $bg = New-Object System.Drawing.SolidBrush($p.Bg)
+        $g.FillPath($bg, $path); $bg.Dispose()
+        $g.SetClip($path)
+        if ($p.Sun) {
+            $sb = New-Object System.Drawing.SolidBrush($p.SunCol)
+            Fill-Circle $g $sb $p.Sun[0] $p.Sun[1] $p.Sun[2] $f
+            $sb.Dispose()
+        }
+        $m = $p.Mtn
+        $pts = New-Object 'System.Drawing.PointF[]' ($m.Count / 2)
+        for ($i = 0; $i -lt $m.Count / 2; $i++) {
+            $pts[$i] = New-Object System.Drawing.PointF([single]($m[2 * $i] * $f), [single]($m[2 * $i + 1] * $f))
+        }
+        $mb = New-Object System.Drawing.SolidBrush($p.MtnCol)
+        $g.FillPolygon($mb, $pts); $mb.Dispose()
+        $g.ResetClip()
+        $path.Dispose()
     }
 
-    # The opening (small inner pentagon), filled black.
-    $inner = New-Object 'System.Drawing.PointF[]' 5
-    for ($i = 0; $i -lt 5; $i++) {
-        $inner[$i] = New-Object System.Drawing.PointF([single]($cx + $Bx[$i] * $f), [single]($cy + $By[$i] * $f))
-    }
-    $blk = New-Object System.Drawing.SolidBrush($black)
-    $g.FillPolygon($blk, $inner); $blk.Dispose()
-    $pen.Dispose()
-    $g.ResetClip()
-
-    # Outer rim outline (rounded pentagon), so the edge border matches the inner gaps.
-    $rim = New-Object System.Drawing.Pen($black, $ow)
-    $rim.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-    $g.DrawPath($rim, $rp)
-    $rim.Dispose(); $rp.Dispose()
+    # Cloud pane (variant A: width-matched to the pane column, centered in its slot)
+    $cb = New-Object System.Drawing.SolidBrush($colCloud)
+    Fill-Circle $g $cb 57 64.5 6.0 $f
+    Fill-Circle $g $cb 65 62.0 7.5 $f
+    $bar = New-RoundedRect 50 64 26 9 4.5 $f
+    $g.FillPath($cb, $bar); $bar.Dispose(); $cb.Dispose()
 }
 
 # Render the icon once at high resolution on a TRANSPARENT canvas; every asset is a high-quality
-# downscale of this (supersampling smooths the clipped aperture edge that GDI+ region-clipping aliases).
+# downscale of this (supersampling keeps the small pane scenes crisp).
 function New-Master([int]$M) {
     $bmp = New-Object System.Drawing.Bitmap($M, $M, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
     $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $g.Clear([System.Drawing.Color]::Transparent)
-    Draw-Aperture $g ([double]$M / 2) ([double]$M / 2) ([double]$M * 0.45)
+    Draw-Mark $g ([double]$M / 96.0)
     $g.Dispose()
     return $bmp
 }

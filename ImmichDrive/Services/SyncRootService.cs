@@ -62,7 +62,7 @@ public static class SyncRootService
         {
             Id = MakeSyncRootId(serverUrl),
             Path = folder,
-            DisplayNameResource = "ImmichDrive",
+            DisplayNameResource = "Drive for Immich",
             IconResource = iconResource,                 // e.g. "C:\\...\\ImmichDrive.exe,0"
             Version = "1.0",
             ProviderId = ProviderId,

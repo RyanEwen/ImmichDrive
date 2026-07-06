@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <ScrollViewer Padding="32,16,32,32">
         <StackPanel Spacing="16" MaxWidth="760" HorizontalAlignment="Left">
-            <TextBlock Text="ImmichDrive" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="Drive for Immich" Style="{StaticResource TitleTextBlockStyle}" />
             <TextBlock Text="Your Immich photos, in File Explorer — without filling up your disk."
                        Opacity="0.7" Margin="0,-8,0,0" />
 

@@ -25,11 +25,14 @@ declaratively (no manual HKCR writes).
   the SDK BuildTools (`makeappx`/`makepri`/`signtool`) via NuGet if they aren't already on the
   machine, and auto-generates a self-signed dev cert if `ImmichDrive.pfx` is missing.
   **ASCII only.** `-NoSign` for Store uploads.
-- `generate-msix-images.ps1` — renders **one** master icon (a rounded 5-blade,
-  Immich-colored camera aperture on a dark slate tile) and downscales it (4x supersampling per
-  size) into every Store tile/logo/splash PNG under `Images\`, **plus** the multi-size app
-  `.ico` (`ImmichDrive/Resources/ImmichDrive.ico`) and a 256px in-app PNG
-  (`ImmichDrive/Resources/ImmichDrive.png`). **ASCII only.**
+- `generate-msix-images.ps1` — renders **one** master icon (the "Photo Panes" mark: a dark
+  slate rounded tile with a 2x2 grid — three tiny photo scenes plus a white cloud pane; an
+  original design, deliberately NOT Immich's iris logo, which got the app rejected under
+  Store policy 10.1.1.11) and downscales it (4x supersampling per size) into every Store
+  tile/logo/splash PNG under `Images\`, **plus** the multi-size app `.ico`
+  (`ImmichDrive/Resources/ImmichDrive.ico`) and a 256px in-app PNG
+  (`ImmichDrive/Resources/ImmichDrive.png`). The same detailed art is used at every size
+  (no simplified small-size variants — Ryan's explicit choice). **ASCII only.**
 
 ## Identity stamping (dev vs Store)
 

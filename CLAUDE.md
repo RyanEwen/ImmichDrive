@@ -10,6 +10,12 @@ real thumbnails, and are only downloaded ("hydrated") from the Immich server whe
 opened. The point: take a photo on your phone → it auto-syncs to Immich → you grab it from
 your PC's file picker (e.g. attaching to a Craigslist listing) without opening the WebUI.
 
+**Naming:** the public/Store name is **"Drive for Immich"** (the Store rejected "ImmichDrive"
+under policy 10.1.1.1 — name contains another product's title). All *user-visible* strings
+(manifest DisplayNames, window titles, tray tooltip, sync-root display name, README) use the
+public name; *internal* identifiers (projects, namespaces, exe names, mutex, `%AppData%`
+folder, sync-root id prefix) deliberately stay `ImmichDrive` — do not "fix" that mismatch.
+
 Reuses the LittleLauncher / Repilot (CopilotRekey) patterns: WinUI 3 settings window,
 `SettingsManager`/`UserSettings`, native `Shell_NotifyIcon` tray on an invisible host
 window, MSIX build script, single-source-of-truth versioning.

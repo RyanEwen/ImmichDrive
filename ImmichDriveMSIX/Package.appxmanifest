@@ -20,7 +20,7 @@
     ProcessorArchitecture="ARCH_PLACEHOLDER" />
 
   <Properties>
-    <DisplayName>ImmichDrive</DisplayName>
+    <DisplayName>Drive for Immich</DisplayName>
     <PublisherDisplayName>TechnicallyReal</PublisherDisplayName>
     <Logo>Images\StoreLogo.png</Logo>
   </Properties>
@@ -39,7 +39,7 @@
       Executable="ImmichDrive.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="ImmichDrive"
+        DisplayName="Drive for Immich"
         BackgroundColor="transparent"
         Square150x150Logo="Images\Square150x150Logo.png"
         Square44x44Logo="Images\Square44x44Logo.png"
@@ -53,7 +53,7 @@
         <com:Extension Category="windows.comServer">
           <com:ComServer>
             <com:ExeServer Executable="ImmichDrive.ThumbnailProvider.exe"
-                           DisplayName="ImmichDrive Thumbnail Provider">
+                           DisplayName="Drive for Immich Thumbnail Provider">
               <com:Class Id="C0A6F3D2-7E41-4B8A-9C5E-2F1A6D3B8E70" />
             </com:ExeServer>
           </com:ComServer>
@@ -65,7 +65,7 @@
         <uap5:Extension Category="windows.startupTask"
           Executable="ImmichDrive.exe"
           EntryPoint="Windows.FullTrustApplication">
-          <uap5:StartupTask TaskId="ImmichDriveAutoStart" Enabled="true" DisplayName="ImmichDrive" />
+          <uap5:StartupTask TaskId="ImmichDriveAutoStart" Enabled="true" DisplayName="Drive for Immich" />
         </uap5:Extension>
 
         <!-- Associate the thumbnail provider with our CLOUD placeholder files only (scoped to the
