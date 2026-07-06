@@ -52,4 +52,8 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
+
+  <!-- Shared "Our other apps" cross-promo page (git submodule; data baked at
+       dev time by external/promo/refresh.ps1 — no runtime networking) ────── -->
+  <Import Project="..\external\promo\PromotedApps.projitems" Label="Shared" />
 </Project>

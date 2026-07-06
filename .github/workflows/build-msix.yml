@@ -20,6 +20,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Private cross-promo submodule (external/promo) needs a PAT with read
+          # access; add it as the SUBMODULES_TOKEN repository secret.
+          submodules: true
+          token: ${{ secrets.SUBMODULES_TOKEN || github.token }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
