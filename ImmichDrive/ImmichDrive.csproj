@@ -29,7 +29,15 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
 
     <!-- Local asset index (relativePath <-> Immich assetId) -->
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.3" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+
+    <!-- CVE-2025-6965 (SQLite < 3.50.2 aggregate-term memory corruption). The advisory
+         covers SQLitePCLRaw.lib.e_sqlite3 <= 2.1.11 with NO patched release yet, so it
+         cannot be cleared by upgrading (2.1.11 is the newest and still bundles pre-3.50.2
+         SQLite). Not reachable here: SQLite is only a local, app-built index queried with
+         hardcoded parameterized statements over the user's own data — there is no
+         untrusted-SQL path. Remove this once SQLitePCLRaw ships SQLite >= 3.50.2. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
 
     <!-- Structured logging -->
     <PackageReference Include="NLog" Version="6.1.1" />

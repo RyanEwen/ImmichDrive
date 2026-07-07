@@ -18,7 +18,12 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.3" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+
+    <!-- CVE-2025-6965 (SQLite < 3.50.2). No patched SQLitePCLRaw exists yet (advisory covers
+         <= 2.1.11, first_patched_version null); not reachable here (local index, parameterized
+         queries only). See the matching note in ImmichDrive.csproj. Remove when SQLite >= 3.50.2 ships. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
   </ItemGroup>
 
   <!-- Share the Immich client + index reader + path/settings helpers with the app
