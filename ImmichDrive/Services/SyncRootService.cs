@@ -62,7 +62,11 @@ public static class SyncRootService
         {
             Id = MakeSyncRootId(serverUrl),
             Path = folder,
-            DisplayNameResource = "Drive for Immich",
+            // Explorer nav-pane label. Deliberately "ImmichDrive", NOT the Store app name
+            // "Drive for Immich": existing installs already show this, and it reads naturally as a
+            // drive. The Store rejection (10.1.1.1) was about the *listing* product name, not this
+            // runtime label. Only applied on a FRESH registration (see the forceRefresh guard above).
+            DisplayNameResource = "ImmichDrive",
             IconResource = iconResource,                 // e.g. "C:\\...\\ImmichDrive.exe,0"
             Version = "1.0",
             ProviderId = ProviderId,
