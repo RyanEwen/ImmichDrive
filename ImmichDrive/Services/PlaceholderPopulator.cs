@@ -149,26 +149,44 @@ public sealed class PlaceholderPopulator
             var currentIds = new HashSet<string>(assets.Select(a => a.Id), StringComparer.OrdinalIgnoreCase);
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var indexRows = new List<(string, string, bool, long)>();
+
+            // The album timeline is columnar (no name/size), so partition into already-here (self-heal)
+            // and new; new assets get their name/size/type resolved from the index — their timeline copy
+            // — or, failing that, enriched over the network before the placeholder is created.
+            var newAssets = new List<ImmichAsset>();
             foreach (var asset in assets)
+            {
+                ct.ThrowIfCancellationRequested();
+                var inAlbum = _index.RowsForAsset(asset.Id)
+                    .Where(r => r.RelPath.StartsWith(relPrefix, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (inAlbum.Count > 0)
+                {
+                    // Already in this album — reserve names, recreate any missing placeholder.
+                    foreach (var (rel, size, isVideo) in inAlbum)
+                    {
+                        used.Add(Path.GetFileName(rel));
+                        if (!File.Exists(Path.Combine(_syncRootPath, rel)))
+                            CreatePlaceholder(albumAbs, Path.GetFileName(rel), asset.Id, size, isVideo, asset.FileCreatedAt);
+                    }
+                    continue;
+                }
+                newAssets.Add(asset);
+            }
+
+            var toEnrich = newAssets.Where(a => !TryResolveFromIndex(a)).ToList();
+            if (toEnrich.Count > 0)
+                using (var sem = new SemaphoreSlim(EnrichConcurrency))
+                    await Task.WhenAll(toEnrich.Select(async a =>
+                    {
+                        await sem.WaitAsync(ct);
+                        try { await _client.EnrichAsync(a, ct); } finally { sem.Release(); }
+                    }));
+
+            foreach (var asset in newAssets)
             {
                 ct.ThrowIfCancellationRequested();
                 try
                 {
-                    var inAlbum = _index.RowsForAsset(asset.Id)
-                        .Where(r => r.RelPath.StartsWith(relPrefix, StringComparison.OrdinalIgnoreCase)).ToList();
-
-                    if (inAlbum.Count > 0)
-                    {
-                        // Already in this album — reserve names, recreate any missing placeholder.
-                        foreach (var (rel, size, isVideo) in inAlbum)
-                        {
-                            used.Add(Path.GetFileName(rel));
-                            if (!File.Exists(Path.Combine(_syncRootPath, rel)))
-                                CreatePlaceholder(albumAbs, Path.GetFileName(rel), asset.Id, size, isVideo, asset.FileCreatedAt);
-                        }
-                        continue;
-                    }
-
                     string fileName = Disambiguate(asset.BuildFileName(), used);
                     string rel2 = Path.Combine(albumRel, fileName);
                     CreatePlaceholder(albumAbs, fileName, asset.Id, asset.FileSizeBytes, asset.IsVideo, asset.FileCreatedAt);
@@ -216,6 +234,27 @@ public sealed class PlaceholderPopulator
         foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
         name = name.Trim().TrimEnd('.', ' ');
         return name.Length == 0 ? "Unnamed" : name;
+    }
+
+    /// <summary>
+    /// Fills an album asset's name/size/type from an existing index row (the same asset's timeline
+    /// copy), so the columnar album payload needn't be re-fetched over the network. Prefers a
+    /// non-reserved (timeline) row for the cleanest name and a row with a known size. Returns false
+    /// when the asset isn't indexed yet (e.g. archived assets absent from the main timeline) — the
+    /// caller then enriches it.
+    /// </summary>
+    private bool TryResolveFromIndex(ImmichAsset asset)
+    {
+        var rows = _index.RowsForAsset(asset.Id);
+        if (rows.Count == 0) return false;
+        var best = rows
+            .OrderByDescending(r => !IsUnderReserved(r.RelPath)) // timeline copy → clean original name
+            .ThenByDescending(r => r.Size > 0)                   // and a real size when available
+            .First();
+        asset.OriginalFileName = Path.GetFileName(best.RelPath);
+        asset.FileSizeBytes = best.Size;
+        asset.Type = best.IsVideo ? "VIDEO" : "IMAGE";
+        return true;
     }
 
     /// <summary>Mirrors favorited assets into a flat <c>Favorites\</c> folder, and prunes un-favorited ones.</summary>
@@ -349,7 +388,7 @@ public sealed class PlaceholderPopulator
     private async Task<bool> ProcessBucketAsync(ImmichClient.BucketRef bucket, string relRoot, string? userId, CancellationToken ct, Action? onAsset, HashSet<string>? seenIds = null)
     {
         List<ImmichAsset> assets;
-        try { assets = await _client.GetBucketAssetsAsync(bucket.Raw, userId, null, ct); }
+        try { assets = await _client.GetBucketAssetsAsync(bucket.Raw, userId, ct: ct); }
         catch (Exception ex) { Logger.Warn(ex, "Bucket {0} failed", bucket.Raw); return false; }
 
         // Name the folder from the bucket's OWN month — NOT a local-time conversion. The bucket key

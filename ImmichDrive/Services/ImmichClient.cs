@@ -55,8 +55,13 @@ public sealed class ImmichClient : IDisposable
     /// <summary>One month bucket: the raw API key (passed back verbatim), its parsed date, and count.</summary>
     public readonly record struct BucketRef(string Raw, DateTimeOffset Date, int Count);
 
-    private static string BucketQuery(string? userId, bool? isFavorite)
+    private static string BucketQuery(string? userId, bool? isFavorite, string? albumId = null)
     {
+        // An album timeline is scoped by albumId alone — the isArchived/isTrashed filters would drop
+        // assets the album legitimately contains, so its count wouldn't match the album's assetCount.
+        if (!string.IsNullOrEmpty(albumId))
+            return "size=MONTH&albumId=" + Uri.EscapeDataString(albumId);
+
         string q = "size=MONTH&isTrashed=false&isArchived=false";
         if (!string.IsNullOrEmpty(userId)) q += "&userId=" + Uri.EscapeDataString(userId);
         if (isFavorite == true) q += "&isFavorite=true";
@@ -64,11 +69,11 @@ public sealed class ImmichClient : IDisposable
     }
 
     /// <summary>Month buckets, newest first. <paramref name="userId"/> targets a partner's library;
-    /// <paramref name="isFavorite"/> restricts to favorites.</summary>
-    public async Task<List<BucketRef>> GetBucketsAsync(string? userId = null, bool? isFavorite = null, CancellationToken ct = default)
+    /// <paramref name="isFavorite"/> restricts to favorites; <paramref name="albumId"/> scopes to one album.</summary>
+    public async Task<List<BucketRef>> GetBucketsAsync(string? userId = null, bool? isFavorite = null, string? albumId = null, CancellationToken ct = default)
     {
         var result = new List<BucketRef>();
-        using var resp = await _http.GetAsync($"{ApiBase}/timeline/buckets?{BucketQuery(userId, isFavorite)}", ct);
+        using var resp = await _http.GetAsync($"{ApiBase}/timeline/buckets?{BucketQuery(userId, isFavorite, albumId)}", ct);
         resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
@@ -92,9 +97,9 @@ public sealed class ImmichClient : IDisposable
     /// returned by <see cref="GetBucketsAsync"/> — reformatting it (e.g. shifting to UTC) makes
     /// the server return an empty bucket.
     /// </summary>
-    public async Task<List<ImmichAsset>> GetBucketAssetsAsync(string rawTimeBucket, string? userId = null, bool? isFavorite = null, CancellationToken ct = default)
+    public async Task<List<ImmichAsset>> GetBucketAssetsAsync(string rawTimeBucket, string? userId = null, bool? isFavorite = null, string? albumId = null, CancellationToken ct = default)
     {
-        string url = $"{ApiBase}/timeline/bucket?{BucketQuery(userId, isFavorite)}&timeBucket={Uri.EscapeDataString(rawTimeBucket)}";
+        string url = $"{ApiBase}/timeline/bucket?{BucketQuery(userId, isFavorite, albumId)}&timeBucket={Uri.EscapeDataString(rawTimeBucket)}";
         using var resp = await _http.GetAsync(url, ct);
         resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct);
@@ -200,16 +205,23 @@ public sealed class ImmichClient : IDisposable
         return result;
     }
 
-    /// <summary>Assets of an album, with full metadata (name + size) — no enrich needed.</summary>
+    /// <summary>
+    /// Assets of an album, newest first. Immich v3 dropped the embedded <c>assets</c> array from
+    /// <c>GET /albums/{id}</c> (even with <c>withoutAssets=false</c>), so the source is now the
+    /// album-scoped timeline (<c>/timeline/bucket?albumId=</c>). That payload is columnar — it carries
+    /// no size and usually no name — so the caller resolves those from the index (the album asset's
+    /// timeline copy) or enriches over the network.
+    /// </summary>
     public async Task<List<ImmichAsset>> GetAlbumAssetsAsync(string albumId, CancellationToken ct = default)
     {
-        using var resp = await _http.GetAsync($"{ApiBase}/albums/{albumId}", ct);
-        resp.EnsureSuccessStatusCode();
-        await using var stream = await resp.Content.ReadAsStreamAsync(ct);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-        return doc.RootElement.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array
-            ? ParseLegacyArray(assets)
-            : [];
+        var all = new List<ImmichAsset>();
+        var buckets = await GetBucketsAsync(albumId: albumId, ct: ct);
+        foreach (var b in buckets)
+        {
+            ct.ThrowIfCancellationRequested();
+            all.AddRange(await GetBucketAssetsAsync(b.Raw, albumId: albumId, ct: ct));
+        }
+        return all;
     }
 
     /// <summary>Fills <see cref="ImmichAsset.OriginalFileName"/> / size from <c>/assets/{id}</c>.</summary>

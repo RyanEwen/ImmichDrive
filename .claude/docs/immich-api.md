@@ -67,11 +67,19 @@ enough. If `originalFileName` isn't in the bucket payload, fall back to `GET /ap
 ## Albums
 
 - **List** — `GET /api/albums` → array of `{ id, albumName, assetCount, … }`.
-- **Album detail** — `GET /api/albums/{id}` → `{ id, albumName, assets: [ … ] }` where each asset is a
-  **full** asset object (`id`, `type`, `originalFileName`, `fileCreatedAt`, `exifInfo.fileSizeInByte`,
-  …). So album assets need **no enrich** — `ParseLegacyArray` handles them directly.
-  `PopulateAlbumsAsync` mirrors these into `Albums\<album name>\`; placeholders reuse the asset id, so
-  thumbnails + hydration work the same as the timeline copy.
+- **Album contents** — **`GET /api/timeline/bucket?size=MONTH&albumId={id}`** (+ its `/timeline/buckets?…&albumId={id}`
+  to enumerate the months). ⚠️ **Immich v3 removed the embedded `assets` array from
+  `GET /api/albums/{id}`** — it now returns only album metadata (identical keys to the list entry), even
+  with `?withoutAssets=false`. Older versions returned `{ …, assets: [ full asset objects ] }`; relying on
+  that shape silently yielded **empty album folders** on v3 (the call is a 200, so nothing logs).
+  `GetAlbumAssetsAsync` now walks the album-scoped timeline instead. Scope the query by `albumId` **alone**
+  (no `isArchived`/`isTrashed` filter — those would drop assets the album legitimately contains, so the
+  bucket count wouldn't match `assetCount`).
+- The album timeline is **columnar** (same struct-of-arrays as the main timeline: no size, usually no name).
+  Album assets are duplicates of the timeline copy, so `PopulateAlbumsAsync` resolves name/size/type from the
+  **index** (`TryResolveFromIndex`, the asset's timeline row) and only network-enriches the few not indexed
+  (e.g. an archived asset absent from the main timeline). It mirrors them into `Albums\<album name>\`;
+  placeholders reuse the asset id, so thumbnails + hydration work the same as the timeline copy.
 
 ## Partners
 
