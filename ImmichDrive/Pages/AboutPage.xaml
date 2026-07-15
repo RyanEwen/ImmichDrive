@@ -104,6 +104,25 @@
             </Grid>
         </Border>
 
+        <!-- Updates -->
+        <Border x:Name="UpdateCard" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="4" Padding="16" Margin="0,0,0,8">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <FontIcon Glyph="&#xE895;" FontSize="24" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="Updates" FontSize="14" FontWeight="Medium"/>
+                    <TextBlock x:Name="UpdateStatusText" Text="Click to check for updates" FontSize="12" Opacity="0.5" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Button x:Name="CheckUpdateButton" Grid.Column="2" Content="Check for Updates" Click="CheckForUpdates_Click" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
         <!-- License -->
         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"

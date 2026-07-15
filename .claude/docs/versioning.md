@@ -12,6 +12,16 @@
   → `git tag -a vX.Y.Z` → push. The `build-msix` Action builds x64 + ARM64 and creates a
   GitHub release from the tag.
 
+## In-app update check
+
+`Services/UpdateService.cs` powers the About page's **Check for Updates** card. It's
+**manual only** (no background/automatic network activity): on click it GETs
+`api.github.com/repos/RyanEwen/ImmichDrive/releases/latest`, strips a leading `v` from the
+tag, and compares it to the running assembly version. A 404 (no releases yet) is treated as
+up-to-date. When newer, the button flips to **View Release** and opens the release page.
+Store-installed copies update through the Microsoft Store instead, so this mainly serves
+sideloaded MSIX installs.
+
 ## Layout version (separate from `<Version>`)
 
 `DriveManager.CurrentLayoutVersion` (currently `4`) is independent of the app `<Version>`. Bump
