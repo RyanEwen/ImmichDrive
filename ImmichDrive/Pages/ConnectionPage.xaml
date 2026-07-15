@@ -16,7 +16,16 @@
                              PlaceholderText="https://photos.example.com" />
                     <PasswordBox x:Name="ApiKeyBox" Header="API key"
                                  PlaceholderText="Immich → Account Settings → API Keys" />
-                    <TextBox x:Name="FolderBox" Header="Drive folder (where it appears in Explorer)" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="FolderBox" Grid.Column="0" IsReadOnly="True"
+                                 Header="Drive folder (where it appears in Explorer)" />
+                        <Button x:Name="ChangeFolderButton" Grid.Column="1" Content="Change&#x2026;"
+                                Click="ChangeFolder_Click" VerticalAlignment="Bottom" />
+                    </Grid>
 
                     <InfoBar x:Name="ResultBar" IsOpen="False" IsClosable="False" />
 

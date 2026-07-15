@@ -74,6 +74,15 @@ public sealed class DriveManager
             Set(DriveStatus.Connecting, "Verifying server…");
             SharedPaths.WriteBreadcrumb();
 
+            // Tear down any previous provider first. On a reconnect where the user changed the folder
+            // without disconnecting, its cfapi connection still holds the old root — releasing it here
+            // lets us re-register and retire the old folder without racing a live connection.
+            _provider?.Disconnect();
+            _provider?.Dispose();
+            _provider = null;
+            _upload?.Dispose();
+            _upload = null;
+
             _client?.Dispose();
             _client = new ImmichClient(s.ServerUrl, s.ApiKey);
             string? who = await _client.TestConnectionAsync();
@@ -85,7 +94,11 @@ public sealed class DriveManager
             // every version — unregister-then-register churn was failing with 0x80070005 and
             // de-placeholdering files. The stable icon path is picked up on the next fresh
             // registration; it no longer depends on the versioned package dir.)
-            await SyncRootService.RegisterAsync(syncRoot, s.ServerUrl, icon);
+            // Returns the old folder when the user relocated the drive, so we can retire it (the
+            // sync-root id is server-derived, so a relocation would otherwise silently strand the old
+            // read-only placeholder tree — the user can't delete it, see the deny ACE in DriveSecurity).
+            string? retiredPath = await SyncRootService.RegisterAsync(syncRoot, s.ServerUrl, icon);
+            if (retiredPath != null) RetireOldSyncRoot(retiredPath, syncRoot);
 
             // One-time clean rebuild when the on-disk layout/naming revision changes. Carry the old
             // index's metadata forward first so the rebuild re-creates placeholders from known
@@ -238,6 +251,94 @@ public sealed class DriveManager
         }
         catch (Exception ex) { Logger.Warn(ex, "Stable icon copy failed; using exe path"); }
         return $"{Environment.ProcessPath},0";
+    }
+
+    /// <summary>
+    /// Retires the previous drive folder after the user relocates the drive to <paramref name="newRoot"/>.
+    /// Lifts the read-only deny ACE, rescues any not-yet-uploaded files from the old <c>Upload\</c> into the
+    /// new one, then deletes the old placeholder tree. Placeholders are local-only, so nothing leaves the
+    /// Immich server. Runs off the connect path — deleting the tree touches every file's attributes.
+    /// </summary>
+    private static void RetireOldSyncRoot(string oldRoot, string newRoot)
+    {
+        // Guard against pathological overlaps (new folder nested under old, or vice versa) — deleting
+        // the old tree would take the new one with it. Leave it for the user in that case.
+        if (IsSameOrNested(oldRoot, newRoot))
+        {
+            Logger.Warn("Skipping retire of {0}: overlaps new root {1}", oldRoot, newRoot);
+            return;
+        }
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                if (!Directory.Exists(oldRoot)) return;
+
+                // Drop the read-only deny and grant ourselves full control so the whole tree is deletable.
+                DriveSecurity.RemoveReadOnly(oldRoot);
+                DriveSecurity.AllowDeleteTree(oldRoot);
+
+                RescuePendingUploads(oldRoot, newRoot);
+
+                ClearAttributesRecursive(oldRoot);
+                Directory.Delete(oldRoot, recursive: true);
+                Logger.Info("Retired old drive folder {0}", oldRoot);
+            }
+            catch (Exception ex) { Logger.Warn(ex, "Retiring old drive folder {0} failed", oldRoot); }
+        });
+    }
+
+    /// <summary>Moves any files the user dropped in the old <c>Upload\</c> into the new one so a relocation
+    /// mid-upload doesn't lose them.</summary>
+    private static void RescuePendingUploads(string oldRoot, string newRoot)
+    {
+        try
+        {
+            string oldUpload = Path.Combine(oldRoot, UploadService.UploadFolderName);
+            if (!Directory.Exists(oldUpload)) return;
+            string newUpload = Path.Combine(newRoot, UploadService.UploadFolderName);
+            Directory.CreateDirectory(newUpload);
+            foreach (var file in Directory.GetFiles(oldUpload, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    string dest = Path.Combine(newUpload, Path.GetFileName(file));
+                    for (int n = 2; File.Exists(dest); n++)
+                        dest = Path.Combine(newUpload, $"{Path.GetFileNameWithoutExtension(file)} ({n}){Path.GetExtension(file)}");
+                    File.SetAttributes(file, FileAttributes.Normal);
+                    File.Move(file, dest);
+                    Logger.Info("Rescued pending upload {0} -> {1}", file, dest);
+                }
+                catch (Exception ex) { Logger.Warn(ex, "Rescuing pending upload {0} failed", file); }
+            }
+        }
+        catch (Exception ex) { Logger.Warn(ex, "Rescuing pending uploads from {0} failed", oldRoot); }
+    }
+
+    /// <summary>Clears ReadOnly/Hidden/System on every file and folder so <see cref="Directory.Delete(string,bool)"/>
+    /// can remove the tree (placeholders carry ReadOnly; desktop.ini is Hidden+System).</summary>
+    private static void ClearAttributesRecursive(string root)
+    {
+        foreach (var f in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
+            try { File.SetAttributes(f, FileAttributes.Normal); } catch { }
+        foreach (var d in Directory.GetDirectories(root, "*", SearchOption.AllDirectories))
+            try { new DirectoryInfo(d).Attributes = FileAttributes.Directory; } catch { }
+        try { new DirectoryInfo(root).Attributes = FileAttributes.Directory; } catch { }
+    }
+
+    /// <summary>True if the two paths are equal or one contains the other.</summary>
+    private static bool IsSameOrNested(string a, string b)
+    {
+        try
+        {
+            static string Norm(string p) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(p))
+                + Path.DirectorySeparatorChar;
+            string na = Norm(a), nb = Norm(b);
+            return na.StartsWith(nb, StringComparison.OrdinalIgnoreCase)
+                || nb.StartsWith(na, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
     }
 
     /// <summary>Deletes the placeholder folders under the sync root (for a clean layout rebuild).</summary>

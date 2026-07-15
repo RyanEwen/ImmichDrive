@@ -41,19 +41,33 @@ public static class SyncRootService
 
     private const string IdPrefix = "ImmichDrive.";
 
-    public static async Task RegisterAsync(string syncRootPath, string serverUrl, string iconResource, bool forceRefresh = false)
+    /// <summary>
+    /// Registers the sync root at <paramref name="syncRootPath"/>. Returns the filesystem path of a
+    /// <b>retired old location</b> when this call <i>relocates</i> an existing registration (the user
+    /// changed the drive folder), so the caller can clean up the abandoned tree; otherwise returns
+    /// <c>null</c>. The sync-root id is server-derived (path-independent), so a relocation reuses the
+    /// same id — without this check the old folder would silently strand as an un-deletable,
+    /// read-only placeholder tree.
+    /// </summary>
+    public static async Task<string?> RegisterAsync(string syncRootPath, string serverUrl, string iconResource, bool forceRefresh = false)
     {
         Directory.CreateDirectory(syncRootPath);
 
-        // Normally: already registered with our (stable) id → leave it intact. Re-registering means
-        // unregistering first, which tears down placeholders. This is the key to not wiping the
-        // drive on every launch. The exception is forceRefresh (a new app version), where we must
-        // re-register so the IconResource path — which contains the versioned package dir — points
-        // at the new build; the self-healing populate then recreates any torn-down placeholders.
-        if (!forceRefresh && IsRegistered(serverUrl)) { Logger.Info("Sync root already registered; leaving intact"); return; }
+        string? registeredPath = GetRegisteredPath(serverUrl);
+        bool relocating = registeredPath != null && !SamePath(registeredPath, syncRootPath);
 
-        // Clear any current/orphaned roots (old randomized-hash ids, or the prior version's), then
-        // register fresh.
+        // Normally: already registered with our (stable) id at the SAME path → leave it intact.
+        // Re-registering means unregistering first, which tears down placeholders. This is the key to
+        // not wiping the drive on every launch. Two exceptions force a re-register: forceRefresh (a new
+        // app version, so the versioned IconResource path is refreshed and the self-healing populate
+        // recreates any torn-down placeholders), and a relocation (the path changed — fall through so we
+        // register at the new folder and hand the old one back to the caller to retire).
+        if (!forceRefresh && !relocating && registeredPath != null) { Logger.Info("Sync root already registered; leaving intact"); return null; }
+
+        if (relocating) Logger.Info("Sync root relocating from {0} to {1}", registeredPath, syncRootPath);
+
+        // Clear any current/orphaned roots (old randomized-hash ids, the prior version's, or the
+        // pre-relocation registration), then register fresh.
         UnregisterOurs();
 
         var folder = await StorageFolder.GetFolderFromPathAsync(syncRootPath);
@@ -90,7 +104,7 @@ public static class SyncRootService
             {
                 StorageProviderSyncRootManager.Register(info);
                 Logger.Info("Registered sync root {0} at {1} (attempt {2})", info.Id, syncRootPath, i);
-                return;
+                return relocating ? registeredPath : null;
             }
             catch (Exception ex) when (i < attempts)
             {
@@ -99,6 +113,7 @@ public static class SyncRootService
                 await Task.Delay(2500);
             }
         }
+        return null;
     }
 
     /// <summary>Unregisters any sync root registered by this app (matched by id prefix), incl. orphans.</summary>
@@ -125,15 +140,34 @@ public static class SyncRootService
         catch { /* not registered */ }
     }
 
-    public static bool IsRegistered(string serverUrl)
+    public static bool IsRegistered(string serverUrl) => GetRegisteredPath(serverUrl) != null;
+
+    /// <summary>
+    /// Returns the filesystem path our sync root is currently registered at for this server, or
+    /// <c>null</c> if not registered. Used to detect a folder relocation (same server-derived id, but
+    /// the shell reports a different path).
+    /// </summary>
+    public static string? GetRegisteredPath(string serverUrl)
     {
         try
         {
             string id = MakeSyncRootId(serverUrl);
             foreach (var root in StorageProviderSyncRootManager.GetCurrentSyncRoots())
-                if (root.Id == id) return true;
+                if (root.Id == id) return root.Path?.Path;
         }
         catch { /* API unavailable */ }
-        return false;
+        return null;
+    }
+
+    /// <summary>Case-insensitive, separator-normalized path equality (best-effort).</summary>
+    private static bool SamePath(string a, string b)
+    {
+        try
+        {
+            static string Norm(string p) =>
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(p));
+            return string.Equals(Norm(a), Norm(b), StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
     }
 }
