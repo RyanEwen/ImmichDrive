@@ -30,6 +30,8 @@ window, MSIX build script, single-source-of-truth versioning.
   the cfapi callback connection for the lifetime of the process; `SettingsWindow` is shown
   on demand. On launch it registers the sync root, populates the placeholder tree from the
   Immich timeline, and connects the hydration callbacks. Single-instance via a named mutex.
+  When the server can't be reached it sits in `DriveStatus.Offline` and retries quietly on a
+  backoff — muted tray icon, no notification, no sound. See ARCHITECTURE §8.
 - **`ImmichDrive.ThumbnailProvider.exe`** (project `ImmichDrive.ThumbnailProvider/`) — an
   **out-of-process** COM **`IThumbnailProvider`** server (an `exe`, not a DLL — an in-proc
   comhost failed to activate in the shell surrogate, `0x80008093`). The shell launches it on
@@ -64,7 +66,7 @@ and the sync-provider shell integration register cleanly (declared, not poked in
 |---|---|
 | `Models/ImmichAsset.cs` | Plain POCO: asset id, type, fileCreatedAt, originalFileName, size. |
 | `Services/AssetIndex.cs` | SQLite map relativePath ⇄ assetId (built during populate). Read-only reader is linked into the thumbnail extension. |
-| `Services/ImmichClient.cs` | `HttpClient` wrapper: `x-api-key` auth, timeline, albums, favorites, partners, original, thumbnail, upload, connection test. WinUI-free. |
+| `Services/ImmichClient.cs` | `HttpClient` wrapper: `x-api-key` auth, timeline, albums, favorites, partners, original, thumbnail, upload, and the `ProbeAsync` reachability check (Ok / Unauthorized / Unreachable). WinUI-free. |
 
 `ImmichClient` and the `AssetIndex` reader are **linked** (`<Compile Include="..\ImmichDrive\...">`)
 into the thumbnail extension, so they must stay WinUI-free and trim-safe (no NLog there).
