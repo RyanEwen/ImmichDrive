@@ -30,9 +30,6 @@ public partial class UserSettings : ObservableObject
     /// <summary>Folder presented as the drive. Empty = default %UserProfile%\ImmichDrive.</summary>
     [ObservableProperty] public partial string SyncRootPath { get; set; } = "";
 
-    /// <summary>Size of the flat Recent\ window in days.</summary>
-    [ObservableProperty] public partial int RecentDays { get; set; } = 14;
-
     /// <summary>Last successful timeline populate (UTC).</summary>
     [ObservableProperty] public partial DateTimeOffset LastSyncUtc { get; set; }
 
@@ -84,7 +81,6 @@ public partial class UserSettings : ObservableObject
         ServerUrl ??= "";
         ApiKey ??= "";
         SyncRootPath ??= "";
-        if (RecentDays <= 0) RecentDays = 14;
         _initializing = false;
     }
 }

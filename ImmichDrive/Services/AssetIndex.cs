@@ -183,7 +183,7 @@ public sealed class AssetIndex
         cmd.ExecuteNonQuery();
     }
 
-    /// <summary>Removes all rows whose relative path starts with the given prefix (e.g. "Recent\").</summary>
+    /// <summary>Removes all rows whose relative path starts with the given prefix (e.g. "Albums\").</summary>
     public void DeleteByPathPrefix(string prefix)
     {
         var (lo, hi) = PrefixRange(prefix);
