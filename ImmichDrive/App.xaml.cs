@@ -20,6 +20,10 @@ public partial class App : Application
     /// <summary>Path to the multi-size app icon (.ico) for Win32 window/tray/taskbar surfaces.</summary>
     public static string IconPath => Path.Combine(AppContext.BaseDirectory, "Resources", "ImmichDrive.ico");
 
+    /// <summary>Path to the muted variant of the app icon (greyscale mark + an amber pip), shown in the
+    /// tray while the drive isn't live. Same sizes as <see cref="IconPath"/> so the tray stays crisp.</summary>
+    public static string OfflineIconPath => Path.Combine(AppContext.BaseDirectory, "Resources", "ImmichDrive-Offline.ico");
+
     /// <summary>Path to a high-res PNG of the app icon. XAML <c>Image</c> elements decode this and
     /// scale it down crisply for whatever DPI they render at — a <c>BitmapImage</c> over the .ico
     /// would grab the tiny 16px frame and upscale it (blurry).</summary>

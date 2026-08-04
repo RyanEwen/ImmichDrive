@@ -6,9 +6,10 @@
 # ASCII only (Windows PowerShell 5.1 reads BOM-less .ps1 as ANSI).
 Add-Type -AssemblyName System.Drawing
 
-$repoRoot  = Split-Path $PSScriptRoot -Parent
-$imagesDir = Join-Path $PSScriptRoot "Images"
-$icoPath   = Join-Path $repoRoot "ImmichDrive\Resources\ImmichDrive.ico"
+$repoRoot     = Split-Path $PSScriptRoot -Parent
+$imagesDir    = Join-Path $PSScriptRoot "Images"
+$icoPath      = Join-Path $repoRoot "ImmichDrive\Resources\ImmichDrive.ico"
+$icoMutedPath = Join-Path $repoRoot "ImmichDrive\Resources\ImmichDrive-Offline.ico"
 New-Item -ItemType Directory -Force $imagesDir | Out-Null
 
 function New-Color([int]$r, [int]$g, [int]$b) {
@@ -80,9 +81,41 @@ function Draw-Mark($g, [double]$f) {
     $g.FillPath($cb, $bar); $bar.Dispose(); $cb.Dispose()
 }
 
+# The "offline" tray variant: the same mark drained to greyscale with a small amber pip in the top
+# right corner. Used while the Immich server can't be reached -- a passive signal, so it has to read
+# at 16 px without a balloon or a sound to back it up.
+$colPip     = New-Color 245 158 11    # amber
+$colPipRing = New-Color 30 41 59      # tile colour, so the pip separates from a light pane
+
+function New-Greyscale($src) {
+    $bmp = New-Object System.Drawing.Bitmap($src.Width, $src.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.Clear([System.Drawing.Color]::Transparent)
+    $cm = New-Object System.Drawing.Imaging.ColorMatrix
+    # Luminance weights across all three output channels; alpha (Matrix33) stays identity.
+    $cm.Matrix00 = 0.30; $cm.Matrix01 = 0.30; $cm.Matrix02 = 0.30
+    $cm.Matrix10 = 0.59; $cm.Matrix11 = 0.59; $cm.Matrix12 = 0.59
+    $cm.Matrix20 = 0.11; $cm.Matrix21 = 0.11; $cm.Matrix22 = 0.11
+    $ia = New-Object System.Drawing.Imaging.ImageAttributes
+    $ia.SetColorMatrix($cm)
+    $rect = New-Object System.Drawing.Rectangle(0, 0, $src.Width, $src.Height)
+    $g.DrawImage($src, $rect, 0, 0, $src.Width, $src.Height, [System.Drawing.GraphicsUnit]::Pixel, $ia)
+    $ia.Dispose(); $g.Dispose()
+    return $bmp
+}
+
+function Draw-Pip($g, [double]$f) {
+    $ring = New-Object System.Drawing.SolidBrush($colPipRing)
+    Fill-Circle $g $ring 76 20 19 $f
+    $ring.Dispose()
+    $pip = New-Object System.Drawing.SolidBrush($colPip)
+    Fill-Circle $g $pip 76 20 14 $f
+    $pip.Dispose()
+}
+
 # Render the icon once at high resolution on a TRANSPARENT canvas; every asset is a high-quality
 # downscale of this (supersampling keeps the small pane scenes crisp).
-function New-Master([int]$M) {
+function New-Master([int]$M, [bool]$Muted = $false) {
     $bmp = New-Object System.Drawing.Bitmap($M, $M, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
@@ -90,7 +123,16 @@ function New-Master([int]$M) {
     $g.Clear([System.Drawing.Color]::Transparent)
     Draw-Mark $g ([double]$M / 96.0)
     $g.Dispose()
-    return $bmp
+    if (-not $Muted) { return $bmp }
+
+    $grey = New-Greyscale $bmp
+    $bmp.Dispose()
+    $g2 = [System.Drawing.Graphics]::FromImage($grey)
+    $g2.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+    $g2.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    Draw-Pip $g2 ([double]$M / 96.0)
+    $g2.Dispose()
+    return $grey
 }
 
 function New-Resized($src, [int]$w, [int]$h) {
@@ -108,8 +150,8 @@ function New-Resized($src, [int]$w, [int]$h) {
 # Render each asset at its OWN size with 4x supersampling (render large, shrink once). This keeps
 # small frames crisp -- downscaling a single 1024 master all the way to 16/24 px blurs them.
 $SS = 4
-function New-Crisp([int]$size) {
-    $m = New-Master ($size * $SS)
+function New-Crisp([int]$size, [bool]$Muted = $false) {
+    $m = New-Master ($size * $SS) $Muted
     $r = New-Resized $m $size $size
     $m.Dispose()
     return $r
@@ -144,10 +186,10 @@ function Save-Png([int]$size, [string]$path) {
     Write-Output "  $(Split-Path $path -Leaf) ($size x $size)"
 }
 
-function Save-Ico([int[]]$sizes, [string]$path) {
+function Save-Ico([int[]]$sizes, [string]$path, [bool]$Muted = $false) {
     $blobs = @()
     foreach ($s in $sizes) {
-        $b = New-Crisp $s
+        $b = New-Crisp $s $Muted
         $ms = New-Object System.IO.MemoryStream
         $b.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
         $blobs += ,($ms.ToArray())
@@ -167,7 +209,7 @@ function Save-Ico([int[]]$sizes, [string]$path) {
     }
     foreach ($b in $blobs) { $bw.Write($b) }
     $bw.Flush(); $bw.Close(); $fs.Close()
-    Write-Output "  ImmichDrive.ico ($($sizes -join ', '))"
+    Write-Output "  $(Split-Path $path -Leaf) ($($sizes -join ', '))"
 }
 
 Write-Output "Generating MSIX images:"
@@ -182,6 +224,7 @@ Save-Splash 1240 600 "SplashScreen.scale-200.png"
 
 Write-Output "Generating app icon + in-app PNG:"
 Save-Ico @(16, 20, 24, 32, 40, 48, 64, 128, 256) $icoPath
+Save-Ico @(16, 20, 24, 32, 40, 48, 64, 128, 256) $icoMutedPath $true
 Save-Png 256 (Join-Path $repoRoot "ImmichDrive\Resources\ImmichDrive.png")
 
 Write-Output "Done."

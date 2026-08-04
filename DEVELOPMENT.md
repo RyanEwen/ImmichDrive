@@ -45,8 +45,8 @@ powershell -File ImmichDriveMSIX/build-msix.ps1 -NoSign     # Store build (unsig
   family that updates your install in place; `-NoSign` (Store) builds keep the real Partner Center
   identity declared in `ImmichDriveMSIX/Package.appxmanifest`.
 - `generate-msix-images.ps1` renders one master icon and downscales it into every Store logo/tile,
-  the app `.ico`, and the in-app PNG. PowerShell build scripts must be **ASCII only** (Windows
-  PowerShell 5.1 reads BOM-less `.ps1` as ANSI).
+  the app `.ico`, its muted `ImmichDrive-Offline.ico` tray variant, and the in-app PNG. PowerShell
+  build scripts must be **ASCII only** (Windows PowerShell 5.1 reads BOM-less `.ps1` as ANSI).
 
 ## Architecture & internals
 

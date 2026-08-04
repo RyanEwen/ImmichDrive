@@ -25,3 +25,9 @@
   not 16, so the shell *downscales* to the DPI-scaled slot (crisp). Loading a 16px frame forces
   an upscale on high-DPI displays → blurry.
 - Always `DestroyIcon` HICONs you create; free unmanaged buffers in `finally`.
+- To change the tray icon at runtime (the muted "offline" variant), `LoadImage` the other `.ico`,
+  `DestroyIcon` the old HICON, and `Shell_NotifyIcon(NIM_MODIFY)` with `uFlags = NIF_ICON` alone —
+  a `NOTIFYICONDATA` sent with flags it doesn't populate will blank those fields. `MainWindow`
+  tracks which variant is loaded so it only re-loads on an actual change.
+- Never send `NIF_INFO` (balloon). The drive's status signalling is deliberately passive: icon +
+  tooltip + flyout, no toast and no sound.

@@ -7,9 +7,12 @@ Base URL is the user's server with `/api` appended (e.g. `https://photos.example
 All requests send the header **`x-api-key: <API_KEY>`**. The user creates the key in Immich
 under *Account Settings → API Keys*. Also send `Accept: application/json` for JSON endpoints.
 
-Validate the key/URL with `GET /api/users/me` (200 + a user object) — used by the
-"Test connection" button. (`GET /api/server/ping` returns `{ "res": "pong" }` but does not
-verify the key, so prefer `users/me`.)
+Validate the key/URL with `GET /api/users/me` (200 + a user object) — `ImmichClient.ProbeAsync`,
+behind the "Test connection" button, the connect path, and the offline watchdog.
+(`GET /api/server/ping` returns `{ "res": "pong" }` but does not verify the key, so prefer
+`users/me`.) `ProbeAsync` maps the response to `Ok` / `Unauthorized` (401/403 — the user must fix
+the key) / `Unreachable` (anything else, including transport failures); `DriveManager` treats those
+as two very different states, so keep the distinction when adding callers.
 
 ## Timeline (the source of the date layout)
 

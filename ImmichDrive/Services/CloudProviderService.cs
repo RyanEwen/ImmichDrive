@@ -23,6 +23,13 @@ public sealed class CloudProviderService : IDisposable
     private CF_CALLBACK? _onFetchData;
     private CF_CALLBACK? _onCancelFetchData;
 
+    /// <summary>
+    /// Raised (on a thread-pool thread) when a hydration transfer fails, carrying the exception that
+    /// caused it. <see cref="DriveManager"/> uses it to notice the server has gone away — a failed
+    /// open is usually the first thing the user experiences when Immich stops answering.
+    /// </summary>
+    public event Action<Exception?>? TransferFailed;
+
     public CloudProviderService(ImmichClient client) => _client = client;
 
     public void Connect(string syncRootPath)
@@ -127,6 +134,7 @@ public sealed class CloudProviderService : IDisposable
             Logger.Error(ex, "Hydration failed for asset {0}", assetId);
             // Tell the OS the fetch failed so the open returns an error instead of hanging.
             TransferData(connKey, transferKey, requestKey, handle.AddrOfPinnedObject(), offset, 0, STATUS_UNSUCCESSFUL);
+            try { TransferFailed?.Invoke(ex); } catch { /* never let a listener break the callback */ }
         }
         finally
         {

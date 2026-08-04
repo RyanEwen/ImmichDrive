@@ -25,12 +25,13 @@ public sealed partial class MainWindow : Window
     private static readonly uint WmTaskbarCreated = RegisterWindowMessage("TaskbarCreated");
 
     // Tray menu command ids.
-    private const uint CmdOpen = 1, CmdFolder = 2, CmdRefresh = 3, CmdToggle = 4, CmdExit = 5;
+    private const uint CmdOpen = 1, CmdFolder = 2, CmdRefresh = 3, CmdToggle = 4, CmdExit = 5, CmdRetry = 6;
     private const uint TrayIconId = 1;
 
     private IntPtr _hwnd;
     private SUBCLASSPROC? _subclass;     // kept rooted
     private IntPtr _hIcon;
+    private bool _mutedIconShown;        // which .ico variant _hIcon currently holds
     private bool _trayAdded;
     private Microsoft.UI.Windowing.AppWindow? _appWindow;
 
@@ -73,12 +74,16 @@ public sealed partial class MainWindow : Window
     }
 
     // ── Tray icon ───────────────────────────────────────────────────
+    /// <summary>
+    /// True when the drive isn't usable, so the tray should show the muted icon. Connecting keeps the
+    /// normal one — a brief startup blink between the two variants would be worse than no signal.
+    /// </summary>
+    private static bool WantsMutedIcon =>
+        DriveManager.Current.Status is DriveStatus.Offline or DriveStatus.Error or DriveStatus.Disconnected;
+
     private void AddTrayIcon()
     {
-        if (_hIcon != IntPtr.Zero) { DestroyIcon(_hIcon); _hIcon = IntPtr.Zero; }
-        // Load a 32px frame (not 16): the shell downscales it to the DPI-scaled tray slot, which
-        // stays crisp. Loading 16 forces an upscale on high-DPI displays -> blurry.
-        _hIcon = LoadImage(IntPtr.Zero, App.IconPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+        LoadTrayIcon(WantsMutedIcon);
         var data = NewIconData();
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = WmTrayCallback;
@@ -87,16 +92,44 @@ public sealed partial class MainWindow : Window
         _trayAdded = Shell_NotifyIcon(NIM_ADD, ref data);
     }
 
-    private void UpdateTrayTooltip()
+    private void LoadTrayIcon(bool muted)
+    {
+        if (_hIcon != IntPtr.Zero) { DestroyIcon(_hIcon); _hIcon = IntPtr.Zero; }
+        // Load a 32px frame (not 16): the shell downscales it to the DPI-scaled tray slot, which
+        // stays crisp. Loading 16 forces an upscale on high-DPI displays -> blurry.
+        string path = muted ? App.OfflineIconPath : App.IconPath;
+        _hIcon = LoadImage(IntPtr.Zero, path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+        if (_hIcon == IntPtr.Zero && muted)   // muted variant missing — better the normal icon than none
+            _hIcon = LoadImage(IntPtr.Zero, App.IconPath, IMAGE_ICON, 32, 32, LR_LOADFROMFILE);
+        _mutedIconShown = muted;
+    }
+
+    /// <summary>
+    /// Reflects the drive state in the tray: the icon goes muted when the drive isn't live and the
+    /// tooltip says why. Deliberately silent — no balloon (NIF_INFO), so nothing pops or chimes.
+    /// </summary>
+    private void UpdateTray()
     {
         if (!_trayAdded) return;
         var dm = DriveManager.Current;
+
+        bool muted = WantsMutedIcon;
+        if (muted != _mutedIconShown)
+        {
+            LoadTrayIcon(muted);
+            var iconData = NewIconData();
+            iconData.uFlags = NIF_ICON;
+            iconData.hIcon = _hIcon;
+            Shell_NotifyIcon(NIM_MODIFY, ref iconData);
+        }
+
         string tip = dm.Status switch
         {
             DriveStatus.Online when dm.Progress.Total > 0 && dm.Progress.Done < dm.Progress.Total
                 => $"Drive for Immich — syncing {dm.Progress.Done}/{dm.Progress.Total}",
             DriveStatus.Online => $"Drive for Immich — online",
             DriveStatus.Connecting => "Drive for Immich — connecting…",
+            DriveStatus.Offline => "Drive for Immich — can't reach Immich, retrying…",
             DriveStatus.Error => $"Drive for Immich — {dm.StatusDetail}",
             _ => "Drive for Immich — disconnected",
         };
@@ -122,7 +155,7 @@ public sealed partial class MainWindow : Window
         uID = TrayIconId,
     };
 
-    // Throttle tooltip updates: during a sync, StatusChanged fires once per asset (thousands of
+    // Throttle tray updates: during a sync, StatusChanged fires once per asset (thousands of
     // times). Rewriting the tray tooltip that fast makes the icon flicker. Coalesce to ~1/sec with
     // a trailing update so the final "Up to date" still lands.
     private long _lastTipTicks;
@@ -136,7 +169,7 @@ public sealed partial class MainWindow : Window
         if (since >= 750)
         {
             _lastTipTicks = now;
-            App.MainDispatcherQueue.TryEnqueue(UpdateTrayTooltip);
+            App.MainDispatcherQueue.TryEnqueue(UpdateTray);
         }
         else
         {
@@ -145,7 +178,7 @@ public sealed partial class MainWindow : Window
             {
                 _tipUpdatePending = false;
                 _lastTipTicks = Environment.TickCount64;
-                App.MainDispatcherQueue.TryEnqueue(UpdateTrayTooltip);
+                App.MainDispatcherQueue.TryEnqueue(UpdateTray);
             });
         }
     }
@@ -163,7 +196,7 @@ public sealed partial class MainWindow : Window
             // Explorer restarted — our tray icon was lost; re-add it.
             _trayAdded = false;
             AddTrayIcon();
-            UpdateTrayTooltip();
+            UpdateTray();
             return IntPtr.Zero;
         }
         if (msg == WmTrayCallback)
@@ -194,17 +227,27 @@ public sealed partial class MainWindow : Window
             DriveStatus.Online when total > 0 && done < total => $"Syncing {done:N0} of {total:N0}…",
             DriveStatus.Online => "Up to date",
             DriveStatus.Connecting => "Connecting…",
+            DriveStatus.Offline => "Can't reach Immich",
             DriveStatus.Error => "Problem connecting",
             _ => "Disconnected",
         };
         AppendMenu(menu, MF_STRING | MF_GRAYED, 0, status);
         AppendMenu(menu, MF_SEPARATOR, 0, null);
 
+        if (dm.CanRetry)
+        {
+            AppendMenu(menu, dm.IsCheckingConnection ? MF_STRING | MF_GRAYED : MF_STRING, CmdRetry,
+                dm.IsCheckingConnection ? "Checking…" : "Try again");
+            AppendMenu(menu, MF_SEPARATOR, 0, null);
+        }
+
         AppendMenu(menu, MF_STRING, CmdOpen, "Settings");
         AppendMenu(menu, MF_STRING, CmdFolder, "Open drive folder");
         AppendMenu(menu, MF_SEPARATOR, 0, null);
         AppendMenu(menu, dm.Status == DriveStatus.Online ? MF_STRING : MF_STRING | MF_GRAYED, CmdRefresh, "Refresh");
-        AppendMenu(menu, MF_STRING, CmdToggle, dm.Status == DriveStatus.Online ? "Disconnect" : "Connect");
+        // Offline still counts as "on" — Disconnect is how the user stops the drive (and its retries).
+        bool driveOn = dm.Status is DriveStatus.Online or DriveStatus.Offline;
+        AppendMenu(menu, MF_STRING, CmdToggle, driveOn ? "Disconnect" : "Connect");
         AppendMenu(menu, MF_SEPARATOR, 0, null);
         AppendMenu(menu, MF_STRING, CmdExit, "Exit");
 
@@ -218,8 +261,9 @@ public sealed partial class MainWindow : Window
             case CmdOpen: ShowSettings(); break;
             case CmdFolder: OpenDriveFolder(); break;
             case CmdRefresh: dm.Refresh(); break;
+            case CmdRetry: _ = dm.RetryConnectionAsync(); break;
             case CmdToggle:
-                if (dm.Status == DriveStatus.Online) dm.Disconnect();
+                if (driveOn) dm.Disconnect();
                 else _ = dm.ConnectAsync();
                 break;
             case CmdExit: ExitApp(); break;

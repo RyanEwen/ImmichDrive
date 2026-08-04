@@ -47,6 +47,7 @@
   <ItemGroup>
     <None Remove="NLog.config" />
     <None Remove="Resources\ImmichDrive.ico" />
+    <None Remove="Resources\ImmichDrive-Offline.ico" />
     <None Remove="Resources\ImmichDrive.png" />
   </ItemGroup>
   <ItemGroup>
@@ -54,6 +55,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Resources\ImmichDrive.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Muted tray icon shown while the drive can't reach the server (see App.OfflineIconPath). -->
+    <Content Include="Resources\ImmichDrive-Offline.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Resources\ImmichDrive.png">

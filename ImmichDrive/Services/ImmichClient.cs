@@ -5,6 +5,17 @@ using System.Text.Json;
 
 namespace ImmichDrive.Services;
 
+/// <summary>Outcome of a connection probe against the Immich server.</summary>
+public enum ImmichReachability
+{
+    /// <summary>The server answered and accepted the API key.</summary>
+    Ok,
+    /// <summary>The server answered but rejected the credentials (revoked or mistyped API key).</summary>
+    Unauthorized,
+    /// <summary>No usable answer — server down, wrong URL, DNS/TLS failure, or a timeout.</summary>
+    Unreachable,
+}
+
 /// <summary>
 /// Thin Immich REST client: <c>x-api-key</c> auth, timeline enumeration, per-asset metadata,
 /// thumbnails, and ranged original downloads. Deliberately WinUI-free and reflection-light
@@ -35,22 +46,32 @@ public sealed class ImmichClient : IDisposable
         return s;
     }
 
-    /// <summary>Verifies the URL + key by calling <c>/users/me</c>. Returns the display name, or null.</summary>
-    public async Task<string?> TestConnectionAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Pings <c>/users/me</c> and reports whether the server answered and accepted the key.
+    /// Never throws (except on caller cancellation) — the two failure modes are deliberately
+    /// distinguished so the UI can say "server is down" (retry later) rather than
+    /// "check your API key" (the user has to act). See <see cref="ImmichReachability"/>.
+    /// </summary>
+    public async Task<(ImmichReachability Reachability, string? User)> ProbeAsync(CancellationToken ct = default)
     {
         try
         {
             using var resp = await _http.GetAsync($"{ApiBase}/users/me", ct);
-            if (!resp.IsSuccessStatusCode) return null;
+            if (resp.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+                return (ImmichReachability.Unauthorized, null);
+            if (!resp.IsSuccessStatusCode) return (ImmichReachability.Unreachable, null);
             await using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             var root = doc.RootElement;
-            if (root.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String) return n.GetString();
-            if (root.TryGetProperty("email", out var e) && e.ValueKind == JsonValueKind.String) return e.GetString();
-            return "(connected)";
+            return (ImmichReachability.Ok, GetStr(root, "name") ?? GetStr(root, "email") ?? "(connected)");
         }
-        catch { return null; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { return (ImmichReachability.Unreachable, null); }
     }
+
+    /// <summary>Verifies the URL + key by calling <c>/users/me</c>. Returns the display name, or null.</summary>
+    public async Task<string?> TestConnectionAsync(CancellationToken ct = default) =>
+        (await ProbeAsync(ct)).User;
 
     /// <summary>One month bucket: the raw API key (passed back verbatim), its parsed date, and count.</summary>
     public readonly record struct BucketRef(string Raw, DateTimeOffset Date, int Count);

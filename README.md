@@ -48,6 +48,10 @@ and freeing space dehydrates it back to a placeholder.
   small thumbnails so you can *see* your photos before opening them, with nothing on disk.
 - **Lives in the tray** — a single tray icon shows status (online / syncing) and lets you
   open settings, refresh, or pause. No heavyweight background service.
+- **Quiet when your server isn't there** — if Immich can't be reached (it's down, you're off
+  the VPN, the laptop woke up early) the tray icon goes grey with an amber dot and the flyout
+  says so. It keeps retrying on its own and reconnects when the server comes back, or you can
+  hit **Try again**. No pop-ups, no sounds.
 
 ## Setup (minimal)
 

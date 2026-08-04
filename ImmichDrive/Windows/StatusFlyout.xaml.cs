@@ -61,37 +61,100 @@ public sealed partial class StatusFlyout : Window
         };
         Closed += (s, e) =>
         {
+            _closed = true;
             DriveManager.Current.StatusChanged -= OnStatusChanged;
             if (_instance == this) _instance = null;
         };
     }
 
+    /// <summary>Set on Close so a status update already queued on the dispatcher doesn't touch a
+    /// torn-down window (the flyout closes the moment it loses focus, so this is easy to hit).</summary>
+    private bool _closed;
+
     private void OnStatusChanged() => DispatcherQueue.TryEnqueue(UpdateUi);
 
     private void UpdateUi()
     {
+        if (_closed) return;
         var dm = DriveManager.Current;
         var (done, total) = dm.Progress;
         bool syncing = dm.Status == DriveStatus.Online && total > 0 && done < total;
+        bool checking = dm.IsCheckingConnection;
 
-        StatusText.Text = dm.Status switch
+        StatusText.Text = checking ? "Checking the connection…" : dm.Status switch
         {
             DriveStatus.Online when syncing => $"Syncing {done:N0} of {total:N0}…",
             DriveStatus.Online => "Up to date",
             DriveStatus.Connecting => "Connecting…",
+            DriveStatus.Offline => "Can't reach Immich",
             DriveStatus.Error => dm.StatusDetail ?? "Problem connecting",
             _ => "Disconnected",
         };
+
+        StatusDot.Fill = (Microsoft.UI.Xaml.Media.Brush)Root.Resources[
+            checking || dm.Status == DriveStatus.Connecting ? "DotBusy" : dm.Status switch
+            {
+                DriveStatus.Online => "DotOnline",
+                DriveStatus.Offline => "DotWarning",
+                DriveStatus.Error => "DotError",
+                _ => "DotIdle",
+            }];
+
+        // While offline, say how stale the view is rather than leaving the user guessing. The retries
+        // are silent by design, so this line is the only place they're mentioned. (Error needs no
+        // second line — its StatusText is already the detail.)
+        string? detail = dm.Status switch
+        {
+            DriveStatus.Offline when checking => null,
+            DriveStatus.Offline => $"Your photos are still listed{LastContactSuffix(dm)}. Retrying in the background.",
+            _ => null,
+        };
+        DetailText.Text = detail ?? "";
+        DetailText.Visibility = detail is null ? Visibility.Collapsed : Visibility.Visible;
+
         SyncProgress.Visibility = syncing ? Visibility.Visible : Visibility.Collapsed;
         if (syncing) { SyncProgress.Maximum = total; SyncProgress.Value = done; }
 
+        RetryButton.Visibility = dm.CanRetry || checking ? Visibility.Visible : Visibility.Collapsed;
+        RetryButton.IsEnabled = !checking;
+        RetryText.Text = checking ? "Checking…" : "Try again";
         RefreshButton.IsEnabled = dm.Status == DriveStatus.Online;
+
+        if (_corner != null) Place();   // rows appear/disappear as the state changes — refit
     }
+
+    /// <summary>", last updated 12:04" when we ever got through this session, otherwise nothing.</summary>
+    private static string LastContactSuffix(DriveManager dm) =>
+        dm.LastContactUtc > DateTimeOffset.MinValue
+            ? $", last updated {dm.LastContactUtc.ToLocalTime():t}"
+            : "";
 
     private void RefreshButton_Click(object sender, RoutedEventArgs e) =>
         DriveManager.Current.Refresh();   // stays open; progress shows live
 
+    private void RetryButton_Click(object sender, RoutedEventArgs e) =>
+        _ = DriveManager.Current.RetryConnectionAsync();   // stays open; the status updates live
+
     private void ShowNearTray()
+    {
+        _corner = null;
+        Place();
+        Activate();
+        SetForegroundWindow(WindowNative.GetWindowHandle(this));
+    }
+
+    /// <summary>The bottom-right corner the flyout is pinned to, captured on first placement so later
+    /// resizes (the Try-again button appearing/disappearing) grow upward instead of drifting.</summary>
+    private (int X, int Y)? _corner;
+
+    private (int W, int H) _size;
+
+    /// <summary>
+    /// Sizes the window to its content and pins it to the tray corner. A no-op when the content
+    /// hasn't changed size — <see cref="UpdateUi"/> runs once per synced asset, and moving the
+    /// window that often would make it judder.
+    /// </summary>
+    private void Place()
     {
         uint dpi = GetDpiForWindow(WindowNative.GetWindowHandle(this));
         double scale = dpi / 96.0;
@@ -101,19 +164,22 @@ public sealed partial class StatusFlyout : Window
         var desired = Root.DesiredSize;
         int w = (int)Math.Ceiling((desired.Width > 0 ? desired.Width : 300) * scale);
         int h = (int)Math.Ceiling((desired.Height > 0 ? desired.Height : 150) * scale);
+        if (_corner != null && (w, h) == _size) return;
+        _size = (w, h);
 
-        GetCursorPos(out var pt);
-        var mi = new MONITORINFOEX { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFOEX>() };
-        int x = pt.X, y = pt.Y;
-        if (GetMonitorInfo(MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST), ref mi))
+        if (_corner == null)
         {
-            int margin = (int)(12 * scale);
-            x = mi.rcWork.Right - w - margin;
-            y = mi.rcWork.Bottom - h - margin;
+            GetCursorPos(out var pt);
+            var mi = new MONITORINFOEX { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFOEX>() };
+            if (GetMonitorInfo(MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST), ref mi))
+            {
+                int margin = (int)(12 * scale);
+                _corner = (mi.rcWork.Right - margin, mi.rcWork.Bottom - margin);
+            }
+            else _corner = (pt.X + w, pt.Y + h);
         }
-        _appWindow.MoveAndResize(new global::Windows.Graphics.RectInt32(x, y, w, h));
-        Activate();
-        SetForegroundWindow(WindowNative.GetWindowHandle(this));
+
+        _appWindow.MoveAndResize(new global::Windows.Graphics.RectInt32(_corner.Value.X - w, _corner.Value.Y - h, w, h));
     }
 
     private void OpenFolderButton_Click(object sender, RoutedEventArgs e)

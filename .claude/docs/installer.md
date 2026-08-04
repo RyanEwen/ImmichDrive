@@ -30,7 +30,9 @@ declaratively (no manual HKCR writes).
   original design, deliberately NOT Immich's iris logo, which got the app rejected under
   Store policy 10.1.1.11) and downscales it (4x supersampling per size) into every Store
   tile/logo/splash PNG under `Images\`, **plus** the multi-size app `.ico`
-  (`ImmichDrive/Resources/ImmichDrive.ico`) and a 256px in-app PNG
+  (`ImmichDrive/Resources/ImmichDrive.ico`), its muted tray variant
+  (`ImmichDrive-Offline.ico` — the same mark run through a luminance `ColorMatrix` with an amber
+  pip, shown while the server is unreachable), and a 256px in-app PNG
   (`ImmichDrive/Resources/ImmichDrive.png`). The same detailed art is used at every size
   (no simplified small-size variants — Ryan's explicit choice). **ASCII only.**
 

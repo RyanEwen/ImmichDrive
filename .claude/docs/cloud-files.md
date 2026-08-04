@@ -103,7 +103,10 @@ itself returns promptly and offloads the work to a `Task`. Steps:
    `CF_OPERATION_PARAMETERS_TRANSFERDATA` (`Buffer`, `Offset`, `Length`, `CompletionStatus =
    STATUS_SUCCESS`) and call `CfExecute(in opInfo, ref opParams)`.
 4. On error (or a short read), transfer with `CompletionStatus = STATUS_UNSUCCESSFUL` so the open
-   fails cleanly instead of hanging.
+   fails cleanly instead of hanging, then raise `TransferFailed` with the exception. `DriveManager`
+   listens: a failed open is usually the first sign the server has gone away, so it triggers a
+   reachability probe (see ARCHITECTURE §8). Keep the event raise inside a `try`/`catch` — a
+   throwing listener must never escape into the cfapi callback path.
 
 A `CF_CALLBACK_TYPE_CANCEL_FETCH_DATA` registration exists (`OnCancelFetchData`); it is currently
 a no-op stub — a production build would signal the matching in-flight transfer (keyed by

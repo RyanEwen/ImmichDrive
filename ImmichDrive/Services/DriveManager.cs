@@ -1,10 +1,24 @@
 using ImmichDrive.Classes.Settings;
 using System.IO;
+using System.Net.Http;
 using System.Threading;
 
 namespace ImmichDrive.Services;
 
-public enum DriveStatus { Disconnected, Connecting, Online, Error }
+public enum DriveStatus
+{
+    /// <summary>Not running — never connected this session, or the user disconnected it.</summary>
+    Disconnected,
+    /// <summary>Bringing the drive up.</summary>
+    Connecting,
+    /// <summary>Live: the sync root is mounted and the server answers.</summary>
+    Online,
+    /// <summary>The server can't be reached right now. Deliberately passive — the tray icon goes
+    /// muted and a watchdog retries quietly; nothing pops up and nothing plays a sound.</summary>
+    Offline,
+    /// <summary>Something the user has to fix (rejected API key, registration failure).</summary>
+    Error,
+}
 
 /// <summary>
 /// Orchestrates the live drive: holds the Immich client + cfapi provider + index, registers
@@ -41,9 +55,28 @@ public sealed class DriveManager
     private Timer? _slowTimer;
     private UploadService? _upload;
 
+    // Offline watchdog: while the server is unreachable we stop polling the timeline and instead
+    // re-probe on a backing-off schedule until it answers again. Passive by design — no balloon,
+    // no sound, no dialog; the tray icon and the flyout are the only signals.
+    private static readonly int[] WatchdogSteps = [30, 60, 120, 300]; // seconds between probes
+    private Timer? _watchdogTimer;
+    private int _watchdogStep;
+    private readonly SemaphoreSlim _probeLock = new(1, 1);
+    private string? _connectedAs;
+
     public DriveStatus Status { get; private set; } = DriveStatus.Disconnected;
     public string? StatusDetail { get; private set; }
     public (int Done, int Total) Progress { get; private set; }
+
+    /// <summary>When the server last answered us, or <see cref="DateTimeOffset.MinValue"/> if it never has
+    /// this session. Shown in the flyout while offline so "how stale is this?" has an answer.</summary>
+    public DateTimeOffset LastContactUtc { get; private set; }
+
+    /// <summary>True while a connection re-test is in flight, so the UI can show a busy affordance.</summary>
+    public bool IsCheckingConnection { get; private set; }
+
+    /// <summary>True when re-testing the connection is a sensible thing to offer.</summary>
+    public bool CanRetry => IsConfigured && Status is DriveStatus.Offline or DriveStatus.Error or DriveStatus.Disconnected;
 
     /// <summary>Raised (on a thread-pool thread) whenever Status/Progress changes.</summary>
     public event Action? StatusChanged;
@@ -60,18 +93,26 @@ public sealed class DriveManager
         !string.IsNullOrWhiteSpace(SettingsManager.Current.ApiKey);
 
     /// <summary>Connects (or reconnects) the drive using the current settings.</summary>
-    public async Task ConnectAsync()
+    public Task ConnectAsync() => ConnectAsync(announce: true);
+
+    /// <summary>
+    /// <paramref name="announce"/> is false for the watchdog's automatic retries while offline: they
+    /// must not flip the status to <see cref="DriveStatus.Connecting"/>, or the tray icon would blink
+    /// back to "healthy" every retry for a server that is still down.
+    /// </summary>
+    private async Task ConnectAsync(bool announce)
     {
         var s = SettingsManager.Current;
         if (string.IsNullOrWhiteSpace(s.ServerUrl) || string.IsNullOrWhiteSpace(s.ApiKey))
         {
+            StopWatchdog();
             Set(DriveStatus.Disconnected, "Not configured");
             return;
         }
 
         try
         {
-            Set(DriveStatus.Connecting, "Verifying server…");
+            if (announce) Set(DriveStatus.Connecting, "Verifying server…");
             SharedPaths.WriteBreadcrumb();
 
             // Finish any retire that a previous session started but didn't complete (app quit mid-delete).
@@ -88,8 +129,24 @@ public sealed class DriveManager
 
             _client?.Dispose();
             _client = new ImmichClient(s.ServerUrl, s.ApiKey);
-            string? who = await _client.TestConnectionAsync();
-            if (who == null) { Set(DriveStatus.Error, "Could not reach Immich (check URL/API key)"); return; }
+            var (reachability, who) = await _client.ProbeAsync();
+            if (reachability == ImmichReachability.Unauthorized)
+            {
+                // The user has to fix this, so don't burn retries on it.
+                StopWatchdog();
+                Set(DriveStatus.Error, "Immich rejected the API key — update it in Settings");
+                return;
+            }
+            if (reachability != ImmichReachability.Ok)
+            {
+                // Server down / wrong URL / no network yet (e.g. we started before the VPN did).
+                // Sit in Offline and let the watchdog bring the drive up when it answers.
+                GoOffline();
+                return;
+            }
+            _connectedAs = who;
+            LastContactUtc = DateTimeOffset.UtcNow;
+            StopWatchdog();
 
             string syncRoot = s.EffectiveSyncRootPath;
             string icon = ResolveStableIcon();
@@ -129,6 +186,9 @@ public sealed class DriveManager
             _index.EnsureCreated();
 
             _provider = new CloudProviderService(_client);
+            // A failed hydration is often the first sign the server went away (the user opened a photo
+            // and nothing came back), so let it nudge the reachability check.
+            _provider.TransferFailed += NoteServerUnreachable;
             _provider.Connect(syncRoot);
 
             s.Connected = true;
@@ -146,9 +206,145 @@ public sealed class DriveManager
         catch (Exception ex)
         {
             Logger.Error(ex, "Connect failed");
-            Set(DriveStatus.Error, ex.Message);
+            if (IsNetworkFailure(ex)) GoOffline();
+            else Set(DriveStatus.Error, ex.Message);
         }
     }
+
+    // ── Reachability ────────────────────────────────────────────────
+    // The drive can be mounted and still useless because the server went away. That is a distinct,
+    // recoverable state (DriveStatus.Offline) from a misconfiguration (DriveStatus.Error): we keep the
+    // placeholders in place, mute the tray icon, and quietly re-probe until Immich answers again.
+
+    /// <summary>
+    /// Re-tests the connection on demand (tray menu / flyout "Try again"). Pings the server when the
+    /// drive is already mounted; otherwise runs a full connect.
+    /// </summary>
+    public async Task RetryConnectionAsync()
+    {
+        if (IsCheckingConnection || !IsConfigured) return;
+        IsCheckingConnection = true;
+        StatusChanged?.Invoke();
+        try
+        {
+            StopWatchdog();  // an explicit retry resets the backoff
+            // Only a mounted-but-unreachable drive can be fixed by a ping. Anything else (including a
+            // rejected key the user has just corrected in Settings) needs a connect from scratch, so
+            // the client picks up the current settings.
+            if (Status == DriveStatus.Offline && _provider != null && _client != null) await ProbeAsync();
+            else await ConnectAsync();
+        }
+        finally
+        {
+            IsCheckingConnection = false;
+            StatusChanged?.Invoke();
+        }
+    }
+
+    /// <summary>Pings the server once and moves the drive between Online and Offline. Never throws.</summary>
+    private async Task ProbeAsync()
+    {
+        if (_client == null) return;
+        if (!await _probeLock.WaitAsync(0)) return;   // one probe at a time
+        try
+        {
+            var (reachability, who) = await _client.ProbeAsync();
+            switch (reachability)
+            {
+                case ImmichReachability.Ok:
+                    NoteServerReachable(who);
+                    break;
+                case ImmichReachability.Unauthorized:
+                    StopWatchdog();   // retrying won't help; the user has to replace the key
+                    Set(DriveStatus.Error, "Immich rejected the API key — update it in Settings");
+                    break;
+                default:
+                    GoOffline();
+                    break;
+            }
+        }
+        finally { _probeLock.Release(); }
+    }
+
+    /// <summary>Records a successful round-trip and, if we were offline, brings the drive back.</summary>
+    private void NoteServerReachable(string? who = null)
+    {
+        LastContactUtc = DateTimeOffset.UtcNow;
+        if (who != null) _connectedAs = who;
+        if (Status != DriveStatus.Offline) return;
+
+        StopWatchdog();
+        Logger.Info("Immich is reachable again");
+        if (_provider == null)
+        {
+            // We never got the drive up (the server was down at launch) — do the real connect now.
+            _ = ConnectAsync(announce: false);
+            return;
+        }
+        Set(DriveStatus.Online, _connectedAs != null ? $"Connected as {_connectedAs}" : "Connected");
+        _ = RunPopulate(newestOnly: false, skipIfBusy: true, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// A request failed in a way that looks like the server/network is down rather than one bad asset.
+    /// Confirms with a probe before muting the tray — a single failed request shouldn't do that.
+    /// </summary>
+    private void NoteServerUnreachable(Exception? ex)
+    {
+        if (Status != DriveStatus.Online) return;
+        if (!IsNetworkFailure(ex)) return;
+        _ = ProbeAsync();
+    }
+
+    private void GoOffline()
+    {
+        if (Status != DriveStatus.Offline)
+        {
+            Logger.Info("Immich unreachable — going offline, will keep retrying");
+            Set(DriveStatus.Offline, "Can't reach the Immich server");
+        }
+        StartWatchdog();
+    }
+
+    private void StartWatchdog()
+    {
+        if (_watchdogTimer != null) return;
+        _watchdogStep = 0;
+        _watchdogTimer = new Timer(_ => _ = OnWatchdogTick(), null,
+            TimeSpan.FromSeconds(WatchdogSteps[0]), Timeout.InfiniteTimeSpan);
+    }
+
+    private void StopWatchdog()
+    {
+        _watchdogTimer?.Dispose();
+        _watchdogTimer = null;
+        _watchdogStep = 0;
+    }
+
+    private async Task OnWatchdogTick()
+    {
+        // The drive may never have come up (nothing to ping through), in which case retry the
+        // whole connect; otherwise a cheap ping is enough.
+        if (_provider != null && _client != null) await ProbeAsync();
+        else await ConnectAsync(announce: false);
+
+        if (Status != DriveStatus.Offline) return;   // recovered, or torn down
+        _watchdogStep = Math.Min(_watchdogStep + 1, WatchdogSteps.Length - 1);
+        int next = WatchdogSteps[_watchdogStep];
+        Logger.Debug("Still offline; next reachability check in {0}s", next);
+        _watchdogTimer?.Change(TimeSpan.FromSeconds(next), Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>True for "the server/network is unavailable" as opposed to "this one asset is bad".</summary>
+    private static bool IsNetworkFailure(Exception? ex) => ex switch
+    {
+        null => false,
+        HttpRequestException => true,
+        TaskCanceledException or TimeoutException => true,          // HttpClient timeout
+        System.Net.Sockets.SocketException => true,
+        IOException => true,                                        // socket torn down mid-stream
+        _ => IsNetworkFailure(ex.InnerException),
+    };
 
     /// <summary>
     /// Applies the read-only deny ACE (per the setting), creates a writable <c>Upload\</c> folder, and
@@ -197,6 +393,7 @@ public sealed class DriveManager
     private async Task RunPopulate(bool newestOnly, bool skipIfBusy, CancellationToken ct)
     {
         if (_client == null || _index == null) return;
+        if (Status == DriveStatus.Offline) return;   // the watchdog owns recovery while offline
 
         if (skipIfBusy) { if (!await _populateLock.WaitAsync(0, ct)) return; }
         else { await _populateLock.WaitAsync(ct); }
@@ -216,9 +413,14 @@ public sealed class DriveManager
                 SettingsManager.Current.LastSyncUtc = DateTimeOffset.UtcNow;
                 SettingsManager.SaveSettings();
             }
+            NoteServerReachable();   // a completed populate is proof the server is answering
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { Logger.Warn(ex, "Populate failed (newestOnly={0})", newestOnly); }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Populate failed (newestOnly={0})", newestOnly);
+            NoteServerUnreachable(ex);
+        }
         finally { _populateLock.Release(); }
     }
 
@@ -460,6 +662,7 @@ public sealed class DriveManager
 
     public void Disconnect()
     {
+        StopWatchdog();
         _fastTimer?.Dispose(); _fastTimer = null;
         _slowTimer?.Dispose(); _slowTimer = null;
         _upload?.Dispose(); _upload = null;

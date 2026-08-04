@@ -30,11 +30,19 @@ public sealed partial class HomePage : Page
             ? Microsoft.UI.Xaml.Visibility.Collapsed
             : Microsoft.UI.Xaml.Visibility.Visible;
         RefreshButton.IsEnabled = dm.Status == DriveStatus.Online;
+        RetryButton.Visibility = dm.CanRetry || dm.IsCheckingConnection
+            ? Microsoft.UI.Xaml.Visibility.Visible
+            : Microsoft.UI.Xaml.Visibility.Collapsed;
+        RetryButton.IsEnabled = !dm.IsCheckingConnection;
+        RetryText.Text = dm.IsCheckingConnection ? "Checking…" : "Try again";
 
         (StatusBar.Severity, StatusBar.Title, StatusBar.Message) = dm.Status switch
         {
             DriveStatus.Online => (InfoBarSeverity.Success, "Online", dm.StatusDetail ?? "Your drive is connected."),
             DriveStatus.Connecting => (InfoBarSeverity.Informational, "Connecting…", dm.StatusDetail ?? ""),
+            DriveStatus.Offline => (InfoBarSeverity.Warning, "Can't reach Immich",
+                  "Your photos are still listed, but they can't be opened until the server answers. "
+                  + "Retrying in the background."),
             DriveStatus.Error => (InfoBarSeverity.Error, "Problem", dm.StatusDetail ?? "Something went wrong."),
             _ => (InfoBarSeverity.Warning, "Not connected",
                   dm.IsConfigured ? "The drive is disconnected." : "Add your Immich server to get started."),
@@ -57,6 +65,9 @@ public sealed partial class HomePage : Page
     }
 
     private void RefreshButton_Click(object sender, RoutedEventArgs e) => DriveManager.Current.Refresh();
+
+    private void RetryButton_Click(object sender, RoutedEventArgs e) =>
+        _ = DriveManager.Current.RetryConnectionAsync();
 
     private void ConfigureButton_Click(object sender, RoutedEventArgs e) =>
         SettingsWindow.GetCurrent()?.NavigateTo(typeof(ConnectionPage));

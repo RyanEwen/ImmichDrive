@@ -26,6 +26,15 @@
   `OverlappedPresenter.CreateForContextMenu()` (top-most, light-dismiss), `ExtendsContentIntoTitleBar`,
   a `DesktopAcrylicBackdrop`, and OS rounded corners via the `DWMWA_WINDOW_CORNER_PREFERENCE`
   (`DWMWCP_ROUND`) attribute only — no manual `DWMWA_BORDER_COLOR`. It closes on deactivation.
+  It re-fits itself to its content as rows appear/disappear (`Place()`), pinned to the tray corner
+  captured on first show; the refit is skipped when the measured size is unchanged, because
+  `UpdateUi` runs once per synced asset. Guard post-close dispatcher callbacks with the `_closed`
+  flag — a queued status update would otherwise touch a torn-down window.
+- **Status colours** come from a small local `<Grid.Resources>` palette of `SolidColorBrush`es over
+  `{ThemeResource}` **Color** keys (`SystemFillColorSuccess`, `SystemFillColorCaution`,
+  `SystemFillColorCritical`, `TextFillColorSecondary`, `TextFillColorDisabled`), looked up by key in
+  code-behind. Note the `…Brush` variants exist for all of these but the bare **Color** key does not
+  (`SystemFillColorAttention` is brush-only) — check `generic.xaml` before using one.
 - Bindable settings are `[ObservableProperty]` partial properties on `UserSettings`, read/written
   through `SettingsManager.Current`. These pages drive them from **code-behind event handlers**
   (e.g. `ThemeCombo_SelectionChanged`, `StartupToggle_Toggled`) rather than `{x:Bind … Mode=TwoWay}`;

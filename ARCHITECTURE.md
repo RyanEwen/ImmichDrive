@@ -2,7 +2,7 @@
 
 ```
 App.xaml ──► MainWindow (invisible host)
-               ├── Tray icon (Shell_NotifyIcon)  — status, context menu
+               ├── Tray icon (Shell_NotifyIcon)  — status (muted when offline), context menu
                ├── DriveManager                  — orchestrates client + provider + index
                │     ├── CloudProviderService    — cfapi connection + hydration callbacks
                │     ├── SyncRootService          — register/unregister the sync root
@@ -131,6 +131,30 @@ Same as Repilot/LittleLauncher: MicaBackdrop settings window, custom title bar,
 `NavigationView` + `Frame` with `Tag`→page switch, native window icon via `WM_SETICON`,
 `ThemeManager` for light/dark/system, tray icon owned by the invisible `MainWindow` via
 `Shell_NotifyIcon` with a registered callback message.
+
+## 8. When the server goes away
+
+A mounted drive whose server has vanished is a distinct, recoverable state — `DriveStatus.Offline`
+— from a misconfiguration (`DriveStatus.Error`, e.g. a rejected API key, which the user must fix).
+`ImmichClient.ProbeAsync` tells the two apart: it pings `/users/me` and returns
+`Ok` / `Unauthorized` / `Unreachable`.
+
+**How we notice.** Nothing polls just to check. Offline is inferred from work that already
+happens: a populate that fails with a network-shaped exception, or a failed hydration
+(`CloudProviderService.TransferFailed`, usually the first thing the user experiences). Either
+one triggers a single confirming probe — one failed request never mutes the tray on its own.
+
+**How we recover.** While offline the timeline timers stand down and a watchdog re-probes on a
+backing-off schedule (30s → 60s → 120s → 300s). A successful probe restores `Online` and kicks a
+populate; if the drive never came up at all (server down at launch, VPN not connected yet) the
+watchdog runs the full connect instead. `DriveManager.RetryConnectionAsync` is the same check on
+demand, wired to "Try again" in the flyout, the home page, and the tray menu.
+
+**How it's surfaced — passively.** The tray icon swaps to `Resources\ImmichDrive-Offline.ico`
+(greyscale mark + amber pip, generated alongside the normal icon by
+`ImmichDriveMSIX/generate-msix-images.ps1`) and the tooltip says why. The flyout shows a coloured
+status dot, a plain-language line, and how stale the listing is. **No balloon (`NIF_INFO`), no
+sound, no dialog** — a server that is down for a day must not nag once an hour.
 
 ## Status
 
