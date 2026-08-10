@@ -22,6 +22,9 @@ public static class UpdateService
 
     private const string Owner = "RyanEwen";
     private const string Repo = "ImmichDrive";
+
+    /// <summary>Store product ID for Drive for Immich (the ID in its Store listing URL).</summary>
+    private const string StoreProductId = "9MWC6165N7DH";
     private static readonly Uri LatestReleaseUri = new($"https://api.github.com/repos/{Owner}/{Repo}/releases/latest");
 
     private static readonly HttpClient Http = CreateHttpClient();
@@ -66,10 +69,20 @@ public static class UpdateService
     /// Ask the Store what it has for this package.
     /// </summary>
     /// <remarks>
-    /// <c>GetAppAndOptionalStorePackageUpdatesAsync</c> lists every package the Store can update,
-    /// including framework dependencies, and can briefly list this one at the version already
-    /// installed. Filter to the app package and require it to be strictly newer, or the UI offers
-    /// an "update" to the version already running.
+    /// <para><c>GetAppAndOptionalStorePackageUpdatesAsync</c> lists every package the Store can
+    /// update, including framework dependencies, so the app's own package is picked out by family
+    /// name. Its presence in that list <b>is</b> the "an update is waiting for you" signal.</para>
+    /// <para><b>What it is not is a source of the new version number.</b>
+    /// <c>StorePackageUpdate.Package</c> describes the package <i>as installed</i>, so
+    /// <c>Id.Version</c> reports the version already on the machine, never the one being offered.
+    /// Measured on a sibling app with a live Store update pending (installed 1.27.1.0, published
+    /// 1.28.0.0): the list held exactly one entry, the app's own, reporting 1.27.1.0. Requiring
+    /// the listed version to be strictly newer — an earlier attempt to stop the UI offering an
+    /// update to the running version — therefore never matched, and this reported "up to date"
+    /// permanently while the Store showed the update ready to install. <b>Do not reintroduce that
+    /// comparison.</b></para>
+    /// <para>The number, and the guard that comparison was reaching for, come from the Store
+    /// catalog instead — see <see cref="TryGetPublishedVersionAsync"/>.</para>
     /// </remarks>
     private static async Task<UpdateCheckResult?> CheckForStoreUpdateAsync()
     {
@@ -82,26 +95,106 @@ public static class UpdateService
             var currentVersion = ToVersion(package.Id.Version);
             string family = package.Id.FamilyName;
 
-            var latest = updates
-                .Where(u => u.Package != null && string.Equals(
-                    u.Package.Id.FamilyName, family, StringComparison.OrdinalIgnoreCase))
-                .Select(u => ToVersion(u.Package!.Id.Version))
-                .DefaultIfEmpty(currentVersion)
-                .Max();
+            bool ourPackageListed = updates.Any(u => u.Package != null && string.Equals(
+                u.Package.Id.FamilyName, family, StringComparison.OrdinalIgnoreCase));
 
-            bool available = latest > currentVersion;
+            // Best-effort: null means "cannot say", and the Store's list is then trusted on its
+            // own rather than being vetoed by a failed lookup. A published version that is not
+            // newer suppresses the offer, which is the stale-list guard done correctly.
+            Version? published = ourPackageListed ? await TryGetPublishedVersionAsync() : null;
+            bool publishedIsNewer = published != null && published > currentVersion;
+            bool available = ourPackageListed && (published == null || publishedIsNewer);
+
+            // Logged on every check because the failure this replaced was invisible: the check
+            // succeeded, so nothing was written, and "up to date" was indistinguishable from a bug.
+            Logger.Info(
+                "Store update check: {Count} package update(s) listed, ours present: {Ours}, "
+                + "installed {Current}, published {Published}, update available: {Available}",
+                updates.Count, ourPackageListed, currentVersion,
+                published?.ToString() ?? "unknown", available);
 
             return new UpdateCheckResult
             {
                 IsStoreManaged = true,
                 UpdateAvailable = available,
+
+                // Empty means "there is a newer version but its number is not known" — the UI
+                // words that case without a version rather than inventing one.
                 CurrentVersion = currentVersion.ToString(3),
-                LatestVersion = available ? latest.ToString(3) : currentVersion.ToString(3),
+                LatestVersion = available
+                    ? (publishedIsNewer ? published!.ToString(3) : "")
+                    : currentVersion.ToString(3),
             };
         }
         catch (Exception ex)
         {
             Logger.Warn(ex, "Store update check failed");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads the version currently published to the Store for this product, or null if it cannot
+    /// be determined. Uses the Store's public display-catalog endpoint, which is what the Store
+    /// client itself reads; there is no WinRT API that reports a pending update's version.
+    /// </summary>
+    private static async Task<Version?> TryGetPublishedVersionAsync()
+    {
+        try
+        {
+            var uri = new Uri(
+                $"https://displaycatalog.mp.microsoft.com/v7.0/products/{StoreProductId}"
+                + "?market=US&languages=en-us&fieldsTemplate=Details");
+
+            using var stream = await Http.GetStreamAsync(uri);
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(stream);
+
+            string arch = global::Windows.ApplicationModel.Package.Current.Id.Architecture switch
+            {
+                global::Windows.System.ProcessorArchitecture.Arm64 => "arm64",
+                global::Windows.System.ProcessorArchitecture.X86 => "x86",
+                _ => "x64",
+            };
+
+            Version? best = null;
+
+            if (!doc.RootElement.TryGetProperty("Product", out var product)
+                || !product.TryGetProperty("DisplaySkuAvailabilities", out var skus))
+            {
+                return null;
+            }
+
+            foreach (var sku in skus.EnumerateArray())
+            {
+                if (!sku.TryGetProperty("Sku", out var skuInfo)
+                    || !skuInfo.TryGetProperty("Properties", out var props)
+                    || !props.TryGetProperty("Packages", out var packages))
+                {
+                    continue;
+                }
+
+                foreach (var p in packages.EnumerateArray())
+                {
+                    // The catalog's numeric "Version" is a packed 64-bit value; the version in
+                    // human form only appears inside the package full name
+                    // (Name_0.1.40.0_arm64__hash), which is also where the architecture is.
+                    if (p.TryGetProperty("PackageFullName", out var fullNameElement)
+                        && fullNameElement.GetString() is { } fullName)
+                    {
+                        var parts = fullName.Split('_');
+                        if (parts.Length < 3) continue;
+                        if (!parts[2].Equals(arch, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (!Version.TryParse(parts[1], out var parsed)) continue;
+                        if (best == null || parsed > best) best = parsed;
+                    }
+                }
+            }
+
+            return best;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Failed to read the published Store version");
             return null;
         }
     }

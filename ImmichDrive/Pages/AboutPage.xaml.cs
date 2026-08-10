@@ -37,7 +37,10 @@ public sealed partial class AboutPage : Page
         else if (result.UpdateAvailable)
         {
             _update = result;
-            UpdateStatusText.Text = $"Version {result.LatestVersion} is available (you have {result.CurrentVersion}).";
+            // The Store path can know an update exists without knowing its version number.
+            UpdateStatusText.Text = string.IsNullOrEmpty(result.LatestVersion)
+                ? $"A new version is available (you have {result.CurrentVersion})."
+                : $"Version {result.LatestVersion} is available (you have {result.CurrentVersion}).";
 
             // A Store copy installs in place; a GitHub copy gets a link to the release.
             CheckUpdateButton.Content = result.IsStoreManaged ? "Download & Install" : "View Release";

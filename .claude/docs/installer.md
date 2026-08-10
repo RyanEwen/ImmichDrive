@@ -48,6 +48,41 @@ The manifest's `<Identity>` holds the **real Partner Center** values — `Name`
 - **`-NoSign` (Store) builds** — keep the real identity untouched; the Store re-signs during
   ingestion.
 
+## Store update checks (`Services/UpdateService.cs`)
+
+Packaged copies check the Store instead of GitHub Releases. One trap governs that path:
+
+**`StorePackageUpdate.Package` describes the package *as installed*, so `Package.Id.Version` is
+the version already on the machine — never the version being offered.** There is no WinRT API
+that reports a pending update's version.
+
+Measured on the sibling Little Launcher package with a live update pending (installed 1.27.1.0,
+published 1.28.0.0): `GetAppAndOptionalStorePackageUpdatesAsync` returned exactly one entry — the
+app's own family — reporting **1.27.1.0**.
+
+So: **presence of the app's own family in that list is the update signal**, and requiring the
+listed version to be strictly newer (an earlier attempt to stop the UI offering an update to the
+running version) can never match — it reports "up to date" forever, and does so *silently*
+because the check succeeds. `TryGetPublishedVersionAsync` supplies the number instead, from the
+Store's public display-catalog endpoint, and a published version that is not newer is what
+suppresses a stale offer. Every check is now logged so a repeat is visible rather than invisible.
+
+Verify either half without a Store submission:
+
+```bash
+curl -s "https://displaycatalog.mp.microsoft.com/v7.0/products/9MWC6165N7DH?market=US&languages=en-us&fieldsTemplate=Details"
+```
+
+```powershell
+Invoke-CommandInDesktopPackage -PackageFamilyName '27766TechnicallyReal.ImmichDrive_gfb69tsnc4jnp' -AppId 'App' -Command 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' -Args '-NoProfile -ExecutionPolicy Bypass -File <script>'
+```
+
+The human-readable version is inside each `PackageFullName` (`…_0.1.40.0_arm64__hash`), not the
+numeric `Version` field beside it (a packed 64-bit value). `StoreContext` and `Package.Current`
+need package identity, which is what `Invoke-CommandInDesktopPackage` supplies; use Windows
+PowerShell 5.1, not `pwsh`, and have the script write output outside the package's redirected
+AppData.
+
 ## Notes
 
 - Bump `<Version>` in `Directory.Build.props` per build — MSIX blocks reinstalling the same
