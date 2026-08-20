@@ -1,5 +1,19 @@
 name: Build and Package
 
+# Nothing built here is published, anywhere. Drive for Immich is a paid app in a public repo,
+# and an Actions artifact on a public repo needs only read access to download, which is
+# everyone. Handing out an unpackaged build instead is not an option either: the Cloud Files
+# sync root and the IThumbnailProvider COM server are registered only by
+# ImmichDriveMSIX/Package.appxmanifest (com:ExeServer + desktop3:CloudFiles), so without
+# package identity there is no working product to give away. The install route is the
+# Microsoft Store (https://apps.microsoft.com/detail/9MWC6165N7DH); anyone who wants to run it
+# from source builds it themselves, which the repo has everything for.
+#
+# The Store package is produced locally, not here: .\ImmichDriveMSIX\build-msix.ps1 -NoSign
+# keeps the real Partner Center identity and leaves it unsigned for the Store to re-sign at
+# ingestion. So this workflow exists for two things only: the build check below, and a
+# notes-only GitHub release on a tag.
+
 on:
   workflow_dispatch:
   push:
@@ -47,6 +61,11 @@ jobs:
         run: ./ImmichDriveMSIX/generate-msix-images.ps1
 
       # -- Build the MSIX package ----------------------------------
+      # This build produces no downloadable output on purpose, and it is still the point of the
+      # job: it is the only automated check that manifest stamping, makepri, makeappx and
+      # signing all still work. Delete it and the next break in the packaging pipeline surfaces
+      # during a Store submission instead of on the commit that caused it. Keep it.
+      #
       # Signs with a CA-trusted certificate when these repository secrets exist:
       #   CODESIGN_PFX_BASE64   - base64-encoded PFX certificate file
       #   CODESIGN_PFX_PASSWORD - password for the PFX certificate
@@ -69,14 +88,10 @@ jobs:
           }
           if ($LASTEXITCODE -ne 0) { Write-Error "build-msix failed"; exit 1 }
 
-      - name: Upload MSIX artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: MSIX-${{ matrix.platform }}
-          path: ImmichDriveMSIX/bin/msix-output/ImmichDrive-${{ matrix.platform }}.msix
-
   release:
     if: startsWith(github.ref, 'refs/tags/v')
+    # No artifact passes between the jobs any more, but the dependency stays: a tag should not
+    # get a release if the package it names does not build.
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -102,24 +117,21 @@ jobs:
             echo "## What's Changed"
             echo ""
             echo "$BODY"
+            echo ""
+            echo "## Install"
+            echo ""
+            echo "Drive for Immich installs from the [Microsoft Store](https://apps.microsoft.com/detail/9MWC6165N7DH)."
+            echo "Releases here carry notes only. The app registers its Cloud Files sync root and its"
+            echo "thumbnail handler from the package manifest, so it needs package identity to work and"
+            echo "there is no standalone build worth downloading. Building from source works: see"
+            echo "DEVELOPMENT.md."
             echo "RELEASE_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Download MSIX artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: MSIX-*
-          path: artifacts
-
-      - name: Collect release files
-        run: |
-          mkdir -p release
-          find artifacts -name '*.msix' -exec cp {} release/ \;
-          ls -la release
-
+      # Notes and the tag, no assets. See the comment at the top of this file for why nothing
+      # binary is published from here.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*
           body: ${{ steps.notes.outputs.RELEASE_BODY }}
           generate_release_notes: true

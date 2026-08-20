@@ -48,6 +48,26 @@ powershell -File ImmichDriveMSIX/build-msix.ps1 -NoSign     # Store build (unsig
   the app `.ico`, its muted `ImmichDrive-Offline.ico` tray variant, and the in-app PNG. PowerShell
   build scripts must be **ASCII only** (Windows PowerShell 5.1 reads BOM-less `.ps1` as ANSI).
 
+## Releases and distribution
+
+- **The Microsoft Store is the install route**
+  ([listing](https://apps.microsoft.com/detail/9MWC6165N7DH)). There is no portable download and
+  no unpackaged download, because there is no honest one to offer: the Cloud Files sync root and
+  the `IThumbnailProvider` COM server are registered only by `Package.appxmanifest`
+  (`com:ExeServer` + `desktop3:CloudFiles`), so a build without package identity is not a working
+  product. Building the MSIX yourself, as above, is how you run your own copy.
+- **A GitHub release carries notes and the tag, nothing else.** No MSIX is attached, and the CI
+  run publishes no Actions artifact either: this is a paid app in a public repo, and an Actions
+  artifact is downloadable by anyone with read access, which on a public repo means anyone.
+- **CI still builds the MSIX on every run** (`.github/workflows/build-msix.yml`, x64 and ARM64)
+  even though it publishes nothing. That build is the only automated check that manifest
+  stamping, `makepri`, `makeappx` and signing still work; without it, a break in packaging would
+  first show up during a Store submission.
+- **The Store package is built locally and uploaded by hand**, with
+  `.\ImmichDriveMSIX\build-msix.ps1 -NoSign`. `-NoSign` is what makes it a Store package: it keeps
+  the real Partner Center identity in the manifest and leaves the package unsigned, since the
+  Store re-signs at ingestion.
+
 ## Architecture & internals
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — the two processes, the cfapi flow, the date layout,

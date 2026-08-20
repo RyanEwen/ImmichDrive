@@ -99,6 +99,19 @@ into the thumbnail extension, so they must stay WinUI-free and trim-safe (no NLo
   Center `<Identity>`; signed sideload builds swap it for a dev identity so they update in
   place, while `-NoSign` (Store) builds keep the real one.
 
+## Distributing (no binaries leave this repo)
+
+- **The Microsoft Store is the install route** (`9MWC6165N7DH`), and the Store package is built
+  **locally** with `build-msix.ps1 -NoSign`, then uploaded to Partner Center by hand.
+- **A GitHub release carries notes and the tag only**, and CI uploads no Actions artifact. This
+  is a paid app in a public repo, where an Actions artifact needs only read access to download.
+  There is also nothing usable to publish: the sync root and the thumbnail COM server register
+  only from `Package.appxmanifest`, so an unpackaged build is not the product. Do not add a
+  portable build, a release asset, or a Store-package CI job to "fix" this.
+- **CI does still build the MSIX on every run, and must keep doing so** (both platforms). It is
+  the only check that manifest stamping, `makepri`, `makeappx` and signing survive a change;
+  the alternative is finding out during a Store submission. See `.github/workflows/build-msix.yml`.
+
 ## Topic-specific guidance
 
 | Topic | File |

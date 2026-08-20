@@ -75,6 +75,12 @@ Building from source, the MSIX packaging pipeline, and how the pieces fit togeth
 app, the thumbnail shell extension, the Cloud Files provider, and the on-disk index — are
 documented in **[DEVELOPMENT.md](DEVELOPMENT.md)**.
 
+The [Microsoft Store](https://apps.microsoft.com/detail/9MWC6165N7DH) is the install route.
+Releases in this repository carry notes and a tag only, with no files attached: Drive for Immich
+registers its Cloud Files sync root and its thumbnail handler from the package manifest, so it
+needs package identity (MSIX) to work at all and an unpackaged build is not a usable app. If you
+want to run your own copy from source, build it with the steps in DEVELOPMENT.md.
+
 ## License
 
 Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md): free for any

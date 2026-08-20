@@ -48,6 +48,28 @@ The manifest's `<Identity>` holds the **real Partner Center** values — `Name`
 - **`-NoSign` (Store) builds** — keep the real identity untouched; the Store re-signs during
   ingestion.
 
+## Distribution (what gets published, and what deliberately does not)
+
+The Store package is produced **locally**: `.\ImmichDriveMSIX\build-msix.ps1 -NoSign`, uploaded to
+Partner Center by hand. Nothing builds it in CI, and nothing should.
+
+`.github/workflows/build-msix.yml` publishes **no binary at all**: no release asset, no Actions
+artifact. Two reasons, and both have to stop being true before that changes:
+
+- ImmichDrive is a **paid app in a public repo**. An Actions artifact needs only read access to
+  download, which on a public repo is everyone.
+- There is **no usable unpackaged build to hand out anyway**. The sync root and the thumbnail COM
+  server are registered by `Package.appxmanifest` alone (`com:ExeServer` + `desktop3:CloudFiles`),
+  so a build without package identity is not the product. See `cloud-files.md`, where sync-root
+  registration is documented as needing package identity.
+
+So the install route is the Microsoft Store (`9MWC6165N7DH`), and anyone wanting to run it from
+source builds the MSIX themselves.
+
+**The workflow still builds the MSIX on every run, and that is not pointless.** It is the only
+automated check that version/arch stamping, `makepri`, `makeappx` and `signtool` still work
+together; drop it and the next packaging break is discovered in a Store submission.
+
 ## Store update checks (`Services/UpdateService.cs`)
 
 Packaged copies check the Store instead of GitHub Releases. One trap governs that path:
