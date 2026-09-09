@@ -46,7 +46,7 @@ with a provider id, display name, icon, and the sync-root folder path
 (`%UserProfile%\ImmichDrive` by default, configurable). Registration is non-destructive: if
 our (stable, FNV-1a-hashed) sync-root id is already registered we leave it intact, since
 re-registering tears down placeholders. Then `CfConnectSyncRoot` wires the callback table.
-We register `FETCH_DATA` (hydration) and `CANCEL_FETCH_DATA`. See `.claude/docs/cloud-files.md`.
+We register `FETCH_DATA` (hydration) and `CANCEL_FETCH_DATA`. See `.codex/docs/cloud-files.md`.
 
 - **Placeholders** are created with `CfCreatePlaceholders`, one `CF_PLACEHOLDER_CREATE_INFO`
   per asset, with `FileIdentity` = UTF-8 Immich asset id, `FsMetadata` = size + timestamps
