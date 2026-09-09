@@ -1,4 +1,21 @@
-# ImmichDrive — Claude Code Instructions
+# ImmichDrive — Codex Instructions
+
+## Using this guidance
+
+Read the relevant topic documents below before changing that area, and update them
+alongside behavior changes. Paths in this file are relative to the repository root.
+
+The files under `.codex/commands/` are task guides. Read and follow the matching guide
+when the user requests that task; they do not register slash commands or run automatically.
+
+| Task | Guide |
+|---|---|
+| Add a user setting | `.codex/commands/add-setting.md` |
+| Add a settings page | `.codex/commands/add-settings-page.md` |
+| Review and commit changes | `.codex/commands/commit.md` |
+| Rebuild and relaunch | `.codex/commands/rebuild.md` |
+| Cut a release | `.codex/commands/release.md` |
+| Audit and update documentation | `.codex/commands/update-docs.md` |
 
 ## Project overview
 
@@ -22,6 +39,9 @@ runtime label; (2) all *internal* identifiers (projects, namespaces, exe names, 
 Reuses the LittleLauncher / Repilot (CopilotRekey) patterns: WinUI 3 settings window,
 `SettingsManager`/`UserSettings`, native `Shell_NotifyIcon` tray on an invisible host
 window, MSIX build script, single-source-of-truth versioning.
+
+Local reference checkouts: `D:\LittleLauncher` and `D:\CopilotRekey`. Consult them
+when reusing the patterns above, if available and permitted by the current environment.
 
 ## Architecture — TWO components
 
@@ -116,18 +136,18 @@ into the thumbnail extension, so they must stay WinUI-free and trim-safe (no NLo
 
 | Topic | File |
 |---|---|
-| Cloud Files API / placeholders / hydration | `.claude/docs/cloud-files.md` |
-| Immich REST API surface used | `.claude/docs/immich-api.md` |
-| Thumbnail shell extension (COM) | `.claude/docs/thumbnails.md` |
-| Read-only drive + Upload folder | `.claude/docs/read-only.md` |
-| Settings persistence conventions | `.claude/docs/user-settings.md` |
-| WinUI 3 XAML conventions | `.claude/docs/xaml.md` |
-| P/Invoke conventions | `.claude/docs/pinvoke.md` |
-| Versioning / release | `.claude/docs/versioning.md` |
-| MSIX packaging | `.claude/docs/installer.md` |
+| Cloud Files API / placeholders / hydration | `.codex/docs/cloud-files.md` |
+| Immich REST API surface used | `.codex/docs/immich-api.md` |
+| Thumbnail shell extension (COM) | `.codex/docs/thumbnails.md` |
+| Read-only drive + Upload folder | `.codex/docs/read-only.md` |
+| Settings persistence conventions | `.codex/docs/user-settings.md` |
+| WinUI 3 XAML conventions | `.codex/docs/xaml.md` |
+| P/Invoke conventions | `.codex/docs/pinvoke.md` |
+| Versioning / release | `.codex/docs/versioning.md` |
+| MSIX packaging | `.codex/docs/installer.md` |
 
 ## Adding a setting / page
 
-See `.claude/commands/add-setting.md` and `add-settings-page.md`. In short: add an
+See `.codex/commands/add-setting.md` and `.codex/commands/add-settings-page.md`. In short: add an
 `[ObservableProperty]` to `UserSettings`, bind it `TwoWay` to `SettingsManager.Current`,
 and (if it has a side-effect) handle it in a partial `On<Name>Changed` guarded by `_initializing`.

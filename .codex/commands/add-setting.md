@@ -7,4 +7,4 @@ Add a new user setting.
 3. If user-visible, bind a control on the relevant page to `SettingsManager.Current.<Name>`
    `Mode=TwoWay`, and call `SettingsManager.SaveSettings()` after meaningful edits.
 4. If the setting must be excluded from JSON, mark it `[JsonIgnore]`.
-5. Document it (one line) in `.claude/docs/user-settings.md` if it's notable.
+5. Document it (one line) in `.codex/docs/user-settings.md` if it's notable.

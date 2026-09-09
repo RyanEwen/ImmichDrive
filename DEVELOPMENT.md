@@ -72,19 +72,19 @@ powershell -File ImmichDriveMSIX/build-msix.ps1 -NoSign     # Store build (unsig
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — the two processes, the cfapi flow, the date layout,
   thumbnails-without-hydration, and storage paths.
-- Topic deep-dives live under **`.claude/docs/`**:
+- Topic deep-dives live under **`.codex/docs/`**:
 
   | Topic | Doc |
   |---|---|
-  | Cloud Files API / placeholders / hydration | [`.claude/docs/cloud-files.md`](.claude/docs/cloud-files.md) |
-  | Immich REST API surface used | [`.claude/docs/immich-api.md`](.claude/docs/immich-api.md) |
-  | Thumbnail shell extension (COM) | [`.claude/docs/thumbnails.md`](.claude/docs/thumbnails.md) |
-  | Read-only drive + Upload folder | [`.claude/docs/read-only.md`](.claude/docs/read-only.md) |
-  | Settings persistence conventions | [`.claude/docs/user-settings.md`](.claude/docs/user-settings.md) |
-  | WinUI 3 XAML conventions | [`.claude/docs/xaml.md`](.claude/docs/xaml.md) |
-  | P/Invoke conventions | [`.claude/docs/pinvoke.md`](.claude/docs/pinvoke.md) |
-  | Versioning / release | [`.claude/docs/versioning.md`](.claude/docs/versioning.md) |
-  | MSIX packaging | [`.claude/docs/installer.md`](.claude/docs/installer.md) |
+  | Cloud Files API / placeholders / hydration | [`.codex/docs/cloud-files.md`](.codex/docs/cloud-files.md) |
+  | Immich REST API surface used | [`.codex/docs/immich-api.md`](.codex/docs/immich-api.md) |
+  | Thumbnail shell extension (COM) | [`.codex/docs/thumbnails.md`](.codex/docs/thumbnails.md) |
+  | Read-only drive + Upload folder | [`.codex/docs/read-only.md`](.codex/docs/read-only.md) |
+  | Settings persistence conventions | [`.codex/docs/user-settings.md`](.codex/docs/user-settings.md) |
+  | WinUI 3 XAML conventions | [`.codex/docs/xaml.md`](.codex/docs/xaml.md) |
+  | P/Invoke conventions | [`.codex/docs/pinvoke.md`](.codex/docs/pinvoke.md) |
+  | Versioning / release | [`.codex/docs/versioning.md`](.codex/docs/versioning.md) |
+  | MSIX packaging | [`.codex/docs/installer.md`](.codex/docs/installer.md) |
 
 ## Tech stack
 

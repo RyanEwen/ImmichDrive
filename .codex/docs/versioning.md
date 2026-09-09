@@ -8,7 +8,7 @@
   slot is always `0` and never bumped manually.
 - Bump `<Version>` for **every** MSIX build — MSIX refuses to reinstall the same version with
   different content.
-- Release: bump → `update-docs` → commit `Bump version to vX.Y.Z` (no Co-Authored-By trailer)
+- Release: bump → follow `.codex/commands/update-docs.md` → commit `Bump version to vX.Y.Z` (no Co-Authored-By trailer)
   → `git tag -a vX.Y.Z` → push. The `build-msix` Action builds x64 + ARM64 and creates a
   GitHub release from the tag.
 - **That release carries notes and the tag only, never a package.** CI attaches no MSIX and

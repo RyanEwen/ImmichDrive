@@ -380,6 +380,3 @@ build_out.txt
 
 # MSIX build output
 RepilotMSIX/bin/
-
-# Local Claude Code settings
-.claude/settings.local.json
