@@ -49,7 +49,6 @@ $publishDir    = Join-Path $repoRoot "ImmichDrive\bin\$Platform\$Configuration\$
 $thumbPublish  = Join-Path $repoRoot "ImmichDrive.ThumbnailProvider\bin\$Platform\$Configuration\$tfm\$rid\publish"
 $layoutDir  = Join-Path $msixDir  "bin\msix-layout\$Platform"
 $outputDir  = Join-Path $msixDir  "bin\msix-output"
-$msixFile   = Join-Path $outputDir "ImmichDrive-$Platform.msix"
 
 # Packaging tools (makeappx/makepri/signtool) for the native host arch.
 $sdkHostArch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
@@ -109,6 +108,13 @@ $version  = $propsXml.SelectSingleNode("//Version").InnerText
 if (-not $version) { Write-Error "Cannot read <Version> from Directory.Build.props"; exit 1 }
 $msixVersion = if ($version -match '^\d+\.\d+\.\d+$') { "$version.0" } else { $version }
 Write-Host "Version: $msixVersion" -ForegroundColor Cyan
+
+# Named with the version, and set here rather than in the paths block above because the version is
+# not known until it has been read. Every build used to write the same two filenames, so the folder
+# held whichever build ran last with nothing on disk to say which - and the file you upload to the
+# Store is chosen by eye. Partner Center reads the version from the manifest either way; this is so
+# the human picking the file cannot get it wrong.
+$msixFile = Join-Path $outputDir "ImmichDrive-$version-$Platform.msix"
 
 # -- Signing certificate (auto-generate dev cert if missing) ----------------------
 if ($NoSign) {
