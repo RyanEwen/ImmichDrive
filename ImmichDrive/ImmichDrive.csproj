@@ -66,7 +66,7 @@
     </Content>
   </ItemGroup>
 
-  <!-- Shared "Our other apps" cross-promo page (git submodule; data baked at
-       dev time by external/promo/refresh.ps1 — no runtime networking) ────── -->
+  <!-- Shared "Our other apps" cross-promo page. Bundled data is the offline
+       fallback; the page refreshes its public manifest at runtime. -->
   <Import Project="..\external\promo\PromotedApps.projitems" Label="Shared" />
 </Project>
