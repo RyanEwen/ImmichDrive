@@ -42,6 +42,11 @@ The manifest's `<Identity>` holds the **real Partner Center** values — `Name`
 `27766TechnicallyReal.ImmichDrive`, `Publisher` `CN=C21E6CEF-D0D1-4497-93F9-3718D054DA0E`,
 `PublisherDisplayName` `Dynamic Solutions Canada`.
 
+The Store listing is named **Drive for Immich**, while manifest `DisplayName` values identify
+the installed package, app, thumbnail server, and startup task as **ImmichDrive**. Keep that
+visible-name distinction separate from `<Identity>`: changing the identity would create a
+different package family and break in-place updates for existing Store installs.
+
 - **Signed (sideload) builds** — `build-msix.ps1` swaps `Name` → `ImmichDrive` and `Publisher`
   → the signing cert's subject so sideload installs form a stable local package family that
   updates in place.

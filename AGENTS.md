@@ -27,14 +27,12 @@ real thumbnails, and are only downloaded ("hydrated") from the Immich server whe
 opened. The point: take a photo on your phone → it auto-syncs to Immich → you grab it from
 your PC's file picker (e.g. attaching to a Craigslist listing) without opening the WebUI.
 
-**Naming:** the public/Store name is **"Drive for Immich"** (the Store rejected "ImmichDrive"
-under policy 10.1.1.1 — name contains another product's title). Most *user-visible* strings
-(manifest DisplayNames, window titles, tray tooltip, README) use the public name. Two
-deliberate exceptions keep `ImmichDrive` — do **not** "fix" either mismatch: (1) the **Explorer
-sync-root display name** (`SyncRootService.DisplayNameResource`) — existing installs already
-show it, it reads naturally as a drive, and the rejection was about the listing name not this
-runtime label; (2) all *internal* identifiers (projects, namespaces, exe names, mutex,
-`%AppData%` folder, sync-root id prefix).
+**Naming:** the Microsoft Store listing is **"Drive for Immich"** (the Store rejected
+"ImmichDrive" under policy 10.1.1.1 because the name contains another product's title).
+The installed app is **"ImmichDrive"** in the package manifest, Windows shell surfaces,
+window titles, tray tooltip, README, and internal identifiers. Keep the Store listing name
+only where it specifically identifies the Store listing or Store download link. Preserve
+the Partner Center package identity so existing installations continue to update.
 
 Reuses the LittleLauncher / Repilot (CopilotRekey) patterns: WinUI 3 settings window,
 `SettingsManager`/`UserSettings`, native `Shell_NotifyIcon` tray on an invisible host

@@ -23,7 +23,7 @@ public static class UpdateService
     private const string Owner = "RyanEwen";
     private const string Repo = "ImmichDrive";
 
-    /// <summary>Store product ID for Drive for Immich (the ID in its Store listing URL).</summary>
+    /// <summary>Store product ID for the app listed as Drive for Immich in the Store.</summary>
     private const string StoreProductId = "9MWC6165N7DH";
     private static readonly Uri LatestReleaseUri = new($"https://api.github.com/repos/{Owner}/{Repo}/releases/latest");
 
@@ -212,7 +212,7 @@ public static class UpdateService
     /// in the package to exit. Calling the combined API from a tray app that never closes hides
     /// the download behind a wait that cannot resolve, so it sits on "waiting to close app"
     /// showing nothing.</para>
-    /// <para>Drive for Immich lives in the tray and starts with Windows, so this is the normal
+    /// <para>ImmichDrive lives in the tray and starts with Windows, so this is the normal
     /// case for it, not an edge case.</para>
     /// </remarks>
     public static async Task<(bool Success, string Message)> DownloadAndInstallStoreUpdateAsync(
@@ -238,7 +238,7 @@ public static class UpdateService
                 // stuck update if right.
                 return (false,
                     "No download is pending. If an update was already downloaded in the "
-                    + "background, restart Drive for Immich to finish installing it.");
+                    + "background, restart ImmichDrive to finish installing it.");
             }
 
             var download = context.RequestDownloadStorePackageUpdatesAsync(updates);
@@ -263,7 +263,7 @@ public static class UpdateService
             return result.OverallState switch
             {
                 StorePackageUpdateState.Completed or StorePackageUpdateState.Deploying =>
-                    (true, "Update ready. Drive for Immich will close to finish installing."),
+                    (true, "Update ready. ImmichDrive will close to finish installing."),
                 _ => (false, DescribeStoreUpdateState(result.OverallState)),
             };
         }
@@ -347,7 +347,7 @@ public static class UpdateService
     /// </summary>
     /// <remarks>
     /// <para><b>An MSIX package cannot be installed while any of its processes are running.</b>
-    /// Drive for Immich lives in the tray and starts with Windows, so a Store update downloads,
+    /// ImmichDrive lives in the tray and starts with Windows, so a Store update downloads,
     /// stages, and then waits for an exit that never comes. The user sees nothing at all: the
     /// Store reports the app as up to date on its own schedule while the new version sits
     /// unapplied, sometimes for weeks.</para>

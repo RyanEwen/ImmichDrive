@@ -1,6 +1,6 @@
 name: Build and Package
 
-# Nothing built here is published, anywhere. Drive for Immich is a paid app in a public repo,
+# Nothing built here is published, anywhere. ImmichDrive is a paid app in a public repo,
 # and an Actions artifact on a public repo needs only read access to download, which is
 # everyone. Handing out an unpackaged build instead is not an option either: the Cloud Files
 # sync root and the IThumbnailProvider COM server are registered only by
@@ -117,7 +117,7 @@ jobs:
             echo ""
             echo "## Install"
             echo ""
-            echo "Drive for Immich installs from the [Microsoft Store](https://apps.microsoft.com/detail/9MWC6165N7DH)."
+            echo "ImmichDrive installs from the [Microsoft Store](https://apps.microsoft.com/detail/9MWC6165N7DH), where it is listed as Drive for Immich."
             echo "Releases here carry notes only. The app registers its Cloud Files sync root and its"
             echo "thumbnail handler from the package manifest, so it needs package identity to work and"
             echo "there is no standalone build worth downloading. Building from source works: see"

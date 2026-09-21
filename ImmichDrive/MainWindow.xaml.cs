@@ -88,7 +88,7 @@ public sealed partial class MainWindow : Window
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = WmTrayCallback;
         data.hIcon = _hIcon;
-        data.szTip = "Drive for Immich";
+        data.szTip = "ImmichDrive";
         _trayAdded = Shell_NotifyIcon(NIM_ADD, ref data);
     }
 
@@ -126,14 +126,14 @@ public sealed partial class MainWindow : Window
         string tip = dm.Status switch
         {
             DriveStatus.Online when dm.IsPopulating && dm.Progress.Total > dm.Progress.Done
-                => $"Drive for Immich: syncing {dm.Progress.Done}/{dm.Progress.Total}",
-            DriveStatus.Online when dm.IsPopulating => "Drive for Immich: finishing sync",
-            DriveStatus.Online when dm.SyncIssue != null => "Drive for Immich: sync needs attention",
-            DriveStatus.Online => $"Drive for Immich — online",
-            DriveStatus.Connecting => "Drive for Immich — connecting…",
-            DriveStatus.Offline => "Drive for Immich — can't reach Immich, retrying…",
-            DriveStatus.Error => $"Drive for Immich — {dm.StatusDetail}",
-            _ => "Drive for Immich — disconnected",
+                => $"ImmichDrive: syncing {dm.Progress.Done}/{dm.Progress.Total}",
+            DriveStatus.Online when dm.IsPopulating => "ImmichDrive: finishing sync",
+            DriveStatus.Online when dm.SyncIssue != null => "ImmichDrive: sync needs attention",
+            DriveStatus.Online => "ImmichDrive: online",
+            DriveStatus.Connecting => "ImmichDrive: connecting…",
+            DriveStatus.Offline => "ImmichDrive: can't reach Immich, retrying…",
+            DriveStatus.Error => $"ImmichDrive: {dm.StatusDetail}",
+            _ => "ImmichDrive: disconnected",
         };
         var data = NewIconData();
         data.uFlags = NIF_TIP;
