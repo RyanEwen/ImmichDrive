@@ -17,6 +17,10 @@ means a user can alter ordinary file attributes; contents and deletions remain p
 device — a deleted placeholder in a deny-folder heals on the next sync). This is the same way
 OneDrive's read-only folders behave.
 
+Cloud folder badge updates convert ordinary populated directories to in-sync placeholders, then
+call `CfSetInSyncState` on later passes. These operations use `WRITE_DAC`, which is not denied by
+the content-write ACE. They do not grant permission to add or edit files.
+
 **Two deliberate gaps, handled:**
 - We do NOT deny `AD` (AddSubdirectory) — the provider creates month/album/partner folders with a
   normal `CreateDirectory` (cfapi only bypasses for *file* placeholders, not folders). The only leak

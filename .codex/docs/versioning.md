@@ -1,7 +1,7 @@
 # Versioning
 
 - `<Version>` in `Directory.Build.props` is the **single source of truth** (currently
-  `0.1.43`). App assembly version, the MSIX manifest (`VERSION_PLACEHOLDER`, stamped by
+  `0.1.44`). App assembly version, the MSIX manifest (`VERSION_PLACEHOLDER`, stamped by
   `build-msix.ps1`), and the CI release tag all derive from it.
 - The MSIX manifest needs a 4-part version, so `build-msix.ps1` reforms the 3-part `<Version>`
   as `X.Y.Z.0` (appends `.0`). The Store requires the 4th part (revision) to be `0`, so that

@@ -22,6 +22,11 @@ public sealed class PinHydrationService : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly FileSystemWatcher _watcher;
     private readonly Timer _timer;
+    private readonly Timer _progressTimer;
+    private readonly object _progressLock = new();
+    private readonly HashSet<string> _trackedFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _completedTrackedFiles = new(StringComparer.OrdinalIgnoreCase);
+    private (int Done, int Total, bool Active) _lastReportedProgress;
     private int _busy;
     private int _scanning;
     private int _scanRequested;
@@ -29,6 +34,19 @@ public sealed class PinHydrationService : IDisposable
 
     public bool HasFailures => !_failed.IsEmpty;
     public event Action? FailureStateChanged;
+    public event Action? ProgressChanged;
+
+    /// <summary>Files hydrated during the current pin operation. Total grows as folders are scanned.</summary>
+    public (int Done, int Total, bool Active) Progress
+    {
+        get
+        {
+            lock (_progressLock)
+                return (_completedTrackedFiles.Count, _trackedFiles.Count,
+                    _trackedFiles.Count > _completedTrackedFiles.Count ||
+                    Volatile.Read(ref _scanning) != 0 || Volatile.Read(ref _busy) != 0);
+        }
+    }
 
     public PinHydrationService(string root, Func<bool> canHydrate)
     {
@@ -54,6 +72,8 @@ public sealed class PinHydrationService : IDisposable
         RequestScan();
         _timer = new Timer(_ => _ = Task.Run(ProcessPending), null,
             TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(15));
+        _progressTimer = new Timer(_ => ReportProgress(), null,
+            TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
     private void OnChanged(object sender, FileSystemEventArgs e) => QueueIfRelevant(e.FullPath);
@@ -68,17 +88,18 @@ public sealed class PinHydrationService : IDisposable
             {
                 if ((attributes & Pinned) != 0) Queue(path);
             }
-            else if ((attributes & Unpinned) != 0 ||
-                     (NeedsHydration(attributes) && IsPinned(path, attributes)))
+            else
             {
-                Queue(path);
+                bool needsDownload = NeedsHydration(attributes) && IsPinned(path, attributes);
+                if ((attributes & Unpinned) != 0 || needsDownload)
+                    Queue(path, trackHydration: needsDownload);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>Queue an attribute change, excluding the writable Upload area and root metadata.</summary>
-    private void Queue(string path)
+    private void Queue(string path, bool trackHydration = false)
     {
         string relative = Path.GetRelativePath(_root, path);
         if (relative == "desktop.ini" || relative == ".." ||
@@ -87,6 +108,17 @@ public sealed class PinHydrationService : IDisposable
             relative.StartsWith(UploadService.UploadFolderName + Path.DirectorySeparatorChar,
                 StringComparison.OrdinalIgnoreCase)) return;
         _pending[path] = Interlocked.Increment(ref _changeNumber);
+        if (!trackHydration) return;
+
+        lock (_progressLock)
+        {
+            if (_trackedFiles.Count == _completedTrackedFiles.Count && _pending.Count <= 1)
+            {
+                _trackedFiles.Clear();
+                _completedTrackedFiles.Clear();
+            }
+            _trackedFiles.Add(path);
+        }
     }
 
     /// <summary>Coalesce overflow and startup scans without losing a request during a scan.</summary>
@@ -134,11 +166,11 @@ public sealed class PinHydrationService : IDisposable
                             if ((attributes & FileAttributes.Directory) != 0)
                             {
                                 if ((attributes & Pinned) != 0) Queue(child);
-                                if ((attributes & FileAttributes.ReparsePoint) == 0) dirs.Push(child);
+                                if (CanTraverseFolder(child)) dirs.Push(child);
                             }
                             else if ((attributes & Pinned) != 0 && NeedsHydration(attributes))
                             {
-                                Queue(child);
+                                Queue(child, trackHydration: true);
                             }
                         }
                         catch (IOException) { } // A concurrent prune can remove a placeholder.
@@ -184,6 +216,7 @@ public sealed class PinHydrationService : IDisposable
             {
                 RemovePending(path, version);
                 ClearFailure(path);
+                DiscardTrackedFile(path);
                 return;
             }
 
@@ -199,10 +232,11 @@ public sealed class PinHydrationService : IDisposable
             {
                 RemovePending(path, version);
                 ClearFailure(path);
+                CompleteTrackedFile(path);
             }
         }
-        catch (FileNotFoundException) { RemovePending(path, version); ClearFailure(path); }
-        catch (DirectoryNotFoundException) { RemovePending(path, version); ClearFailure(path); }
+        catch (FileNotFoundException) { RemovePending(path, version); ClearFailure(path); DiscardTrackedFile(path); }
+        catch (DirectoryNotFoundException) { RemovePending(path, version); ClearFailure(path); DiscardTrackedFile(path); }
         catch (Exception ex)
         {
             MarkFailure(path);
@@ -217,6 +251,51 @@ public sealed class PinHydrationService : IDisposable
     /// <summary>Keep a newer pin change queued if it arrived during this download.</summary>
     private void RemovePending(string path, long version) =>
         ((ICollection<KeyValuePair<string, long>>)_pending).Remove(new(path, version));
+
+    /// <summary>Mark a file complete once, even if several watcher events queued it.</summary>
+    private void CompleteTrackedFile(string path)
+    {
+        lock (_progressLock)
+        {
+            if (_trackedFiles.Contains(path)) _completedTrackedFiles.Add(path);
+        }
+    }
+
+    private void DiscardTrackedFile(string path)
+    {
+        lock (_progressLock)
+        {
+            _trackedFiles.Remove(path);
+            _completedTrackedFiles.Remove(path);
+        }
+    }
+
+    /// <summary>Publish at most once per second while a pin operation is changing.</summary>
+    private void ReportProgress()
+    {
+        var current = Progress;
+        if (!current.Active && current.Total > 0)
+        {
+            lock (_progressLock)
+            {
+                if (_trackedFiles.Count == _completedTrackedFiles.Count &&
+                    _pending.IsEmpty && Volatile.Read(ref _busy) == 0 &&
+                    Volatile.Read(ref _scanning) == 0)
+                {
+                    _trackedFiles.Clear();
+                    _completedTrackedFiles.Clear();
+                    current = default;
+                }
+            }
+        }
+        if (current == _lastReportedProgress) return;
+        _lastReportedProgress = current;
+        ProgressChanged?.Invoke();
+    }
+
+    /// <summary>Cloud folder placeholders are reparse points; only links must be skipped.</summary>
+    private static bool CanTraverseFolder(string path) =>
+        new DirectoryInfo(path).LinkTarget == null;
 
     private void MarkFailure(string path)
     {
@@ -269,11 +348,11 @@ public sealed class PinHydrationService : IDisposable
                             FileAttributes attributes = File.GetAttributes(path);
                             if ((attributes & FileAttributes.Directory) != 0)
                             {
-                                if ((attributes & FileAttributes.ReparsePoint) == 0) dirs.Push(path);
+                                if (CanTraverseFolder(path)) dirs.Push(path);
                             }
                             else if (NeedsHydration(attributes) && IsPinned(path, attributes))
                             {
-                                Queue(path);
+                                Queue(path, trackHydration: true);
                             }
                         }
                         catch (IOException) { } // A concurrent prune can remove one file.
@@ -294,6 +373,7 @@ public sealed class PinHydrationService : IDisposable
         _stop.Cancel();
         _watcher.Dispose();
         _timer.Dispose();
+        _progressTimer.Dispose();
         _stop.Dispose();
     }
 }

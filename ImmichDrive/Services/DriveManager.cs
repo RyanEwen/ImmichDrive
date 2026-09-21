@@ -69,6 +69,7 @@ public sealed class DriveManager
     public DriveStatus Status { get; private set; } = DriveStatus.Disconnected;
     public string? StatusDetail { get; private set; }
     public (int Done, int Total) Progress { get; private set; }
+    public (int Done, int Total, bool Active) PinProgress => _pins?.Progress ?? default;
     public bool IsPopulating { get; private set; }
     public string? SyncIssue => _populateIssue ?? (_pins?.HasFailures == true
         ? "Some pinned photos could not be downloaded. Retrying in the background."
@@ -200,6 +201,7 @@ public sealed class DriveManager
             _provider.Connect(syncRoot);
             _pins = new PinHydrationService(syncRoot, () => Status == DriveStatus.Online);
             _pins.FailureStateChanged += () => StatusChanged?.Invoke();
+            _pins.ProgressChanged += () => StatusChanged?.Invoke();
 
             s.Connected = true;
             SettingsManager.SaveSettings();

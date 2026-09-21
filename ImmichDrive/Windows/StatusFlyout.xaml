@@ -53,6 +53,8 @@
             <TextBlock x:Name="DetailText" Opacity="0.6" FontSize="12" TextWrapping="Wrap"
                        Visibility="Collapsed" Margin="18,-4,0,0" />
             <ProgressBar x:Name="SyncProgress" Visibility="Collapsed" />
+            <TextBlock x:Name="PinProgressText" Opacity="0.6" FontSize="12" Visibility="Collapsed" />
+            <ProgressBar x:Name="PinProgress" Visibility="Collapsed" />
             <Button x:Name="RetryButton" Click="RetryButton_Click" Visibility="Collapsed"
                     HorizontalAlignment="Stretch" ToolTipService.ToolTip="Test the connection again">
                 <StackPanel Orientation="Horizontal" Spacing="8">

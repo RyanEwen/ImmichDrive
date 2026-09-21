@@ -75,8 +75,12 @@ For each asset fill a `CF_PLACEHOLDER_CREATE_INFO` (see `CreatePlaceholder`):
   how the hydration callback knows which asset to fetch.
 - `Flags` — `CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC` (so they start "in sync, dehydrated").
 
-Call `CfCreatePlaceholders(baseDir, infos, 1, CF_CREATE_FLAG_NONE, out entriesProcessed)` (the
-folder is created with a plain `Directory.CreateDirectory` first, not as a placeholder). The
+Call `CfCreatePlaceholders(baseDir, infos, 1, CF_CREATE_FLAG_NONE, out entriesProcessed)`.
+Folders begin as ordinary directories while their contents are enumerated. After a complete
+pass, `CloudFolderState` converts each folder to an in-sync cloud placeholder, or updates an
+existing placeholder. This includes ordinary folders from older installations. Process children
+before parents and leave incomplete folders unmarked so Explorer does not show a finished badge
+for a failed enumeration. The writable `Upload` folder is excluded. The
 "already exists" HRESULT `0x800700B7` is ignored. We also write a row to the SQLite `AssetIndex`
 (`rel_path` ⇄ `asset_id`, plus `is_video`/`size`) for the thumbnail extension and for
 self-healing re-creation without a network round-trip.
@@ -120,7 +124,10 @@ a no-op stub — a production build would signal the matching in-flight transfer
 folder pinned, it calls `CfHydratePlaceholder` on offline files so "Always keep on this device"
 actually downloads content. It scans existing pins at startup and retries pending requests after
 the server comes back. A failed download appears in the drive status until it succeeds. Upload is
-excluded. A folder pin queues its descendant files.
+excluded. A folder pin queues its descendant files. The Home page and tray flyout show the
+number of files downloaded for the current pin operation. The total grows as folder contents
+are discovered; the Cloud Files platform tracks transfer progress for each file. Traverse
+cloud placeholder directories, which are reparse points, but skip symbolic links and junctions.
 
 The timeline's bucket counts are estimates. The UI shows a running count only while a populate is
 active; after a successful pass it records the actual processed count. Failed buckets or placeholder

@@ -57,6 +57,17 @@ public sealed partial class HomePage : Page
         DetailText.Text = syncing ? total > done ? $"Syncing {done:N0} of about {total:N0} photos…" : "Finishing sync…"
             : SettingsManager.Current.LastSyncUtc > DateTimeOffset.MinValue
                 ? $"Last updated {SettingsManager.Current.LastSyncUtc.ToLocalTime():g}" : "";
+
+        var (pinDone, pinTotal, pinActive) = dm.PinProgress;
+        bool downloadingPins = dm.Status == DriveStatus.Online && pinActive && pinTotal > 0;
+        PinProgressText.Visibility = downloadingPins ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+        PinProgress.Visibility = downloadingPins ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+        if (downloadingPins)
+        {
+            PinProgressText.Text = $"Downloading {pinDone:N0} of {pinTotal:N0} pinned photos…";
+            PinProgress.Maximum = pinTotal;
+            PinProgress.Value = pinDone;
+        }
     }
 
     private void OpenFolderButton_Click(object sender, RoutedEventArgs e)

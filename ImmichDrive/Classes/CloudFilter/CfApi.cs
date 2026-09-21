@@ -43,6 +43,18 @@ internal static partial class CfApi
         CF_PLACEHOLDER_CREATE_FLAG_ALWAYS_FULL = 8,
     }
 
+    [Flags]
+    public enum CF_CONVERT_FLAGS : uint
+    {
+        CF_CONVERT_FLAG_MARK_IN_SYNC = 1,
+    }
+
+    public enum CF_IN_SYNC_STATE : uint
+    {
+        CF_IN_SYNC_STATE_NOT_IN_SYNC = 0,
+        CF_IN_SYNC_STATE_IN_SYNC = 1,
+    }
+
     public enum CF_OPERATION_TYPE : uint
     {
         CF_OPERATION_TYPE_TRANSFER_DATA = 0,
@@ -203,6 +215,17 @@ internal static partial class CfApi
 
     [DllImport(Dll)]
     public static extern int CfReleaseTransferKey(IntPtr fileHandle, ref long transferKey);
+
+    /// <summary>Converts a fully populated directory into an in-sync cloud placeholder.</summary>
+    [LibraryImport(Dll)]
+    public static partial int CfConvertToPlaceholder(
+        SafeFileHandle fileHandle, IntPtr fileIdentity, uint fileIdentityLength,
+        CF_CONVERT_FLAGS convertFlags, IntPtr convertUsn, IntPtr overlapped);
+
+    /// <summary>Restores the in-sync badge after a cloud directory's children change.</summary>
+    [LibraryImport(Dll)]
+    public static partial int CfSetInSyncState(
+        SafeFileHandle fileHandle, CF_IN_SYNC_STATE inSyncState, uint inSyncFlags, IntPtr inSyncUsn);
 
     /// <summary>Requests all missing bytes of a pinned placeholder from the connected provider.</summary>
     [LibraryImport(Dll)]

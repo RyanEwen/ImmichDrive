@@ -45,6 +45,7 @@ public sealed class PlaceholderPopulator
     /// </summary>
     private readonly IReadOnlyDictionary<string, (long Size, bool IsVideo, string Name)>? _metaCache;
     private int _otherFailures;
+    private readonly HashSet<string> _readyFolders = new(StringComparer.OrdinalIgnoreCase);
 
     public PlaceholderPopulator(ImmichClient client, AssetIndex index, string syncRootPath,
         IReadOnlyDictionary<string, (long Size, bool IsVideo, string Name)>? metaCache = null)
@@ -88,6 +89,7 @@ public sealed class PlaceholderPopulator
         await PopulateFavoritesAsync(ct);
         await PopulatePartnersAsync(ct);
         ct.ThrowIfCancellationRequested();
+        UpdateFolderSyncStates();
 
         if (total != done)
             Logger.Warn("Timeline count changed or assets were skipped: {0} processed of {1} estimated", done, total);
@@ -141,7 +143,8 @@ public sealed class PlaceholderPopulator
         catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Listing albums failed"); return; }
         if (albums.Count == 0) return; // empty (or a transient failure) → don't prune anything
 
-        EnsureFolder(AlbumsFolderName);
+        string albumsRoot = EnsureFolder(AlbumsFolderName);
+        int failuresBefore = _otherFailures;
         var usedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var currentAlbumFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -151,6 +154,7 @@ public sealed class PlaceholderPopulator
             string folderName = Disambiguate(SanitizeFolderName(album.Name), usedFolders);
             string albumRel = Path.Combine(AlbumsFolderName, folderName);
             string albumAbs = EnsureFolder(albumRel);
+            int albumFailuresBefore = _otherFailures;
             string relPrefix = albumRel + Path.DirectorySeparatorChar;
             currentAlbumFolders.Add(albumRel); // reserve the folder before fetching so a transient
                                                // asset-fetch failure can't orphan it
@@ -214,9 +218,11 @@ public sealed class PlaceholderPopulator
             foreach (var (rel, assetId) in _index.RowsUnderPrefix(relPrefix))
                 if (!currentIds.Contains(assetId)) { DeletePlaceholder(rel); pruned++; }
             if (pruned > 0) Logger.Info("Album '{0}': pruned {1} removed assets", album.Name, pruned);
+            if (_otherFailures == albumFailuresBefore) _readyFolders.Add(albumAbs);
         }
 
         PruneOrphanFolders(AlbumsFolderName, currentAlbumFolders);
+        if (_otherFailures == failuresBefore) _readyFolders.Add(albumsRoot);
     }
 
     /// <summary>Removes immediate subfolders of <paramref name="rootFolderName"/> (and their index rows)
@@ -235,10 +241,14 @@ public sealed class PlaceholderPopulator
                 foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
                     try { File.SetAttributes(f, FileAttributes.Normal); } catch { }
                 Directory.Delete(dir, recursive: true);
+                _index.DeleteByPathPrefix(rel + "\\");
                 Logger.Info("Removed orphaned folder {0}", rel);
             }
-            catch (Exception ex) { Logger.Warn(ex, "Removing folder {0} failed", rel); }
-            _index.DeleteByPathPrefix(rel + "\\");
+            catch (Exception ex)
+            {
+                _otherFailures++;
+                Logger.Warn(ex, "Removing folder {0} failed", rel);
+            }
         }
     }
 
@@ -278,6 +288,7 @@ public sealed class PlaceholderPopulator
         catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Listing favorite buckets failed"); return; }
 
         string favAbs = EnsureFolder(FavoritesFolderName);
+        int failuresBefore = _otherFailures;
         string favPrefix = FavoritesFolderName + Path.DirectorySeparatorChar;
         var seenFav = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -332,6 +343,7 @@ public sealed class PlaceholderPopulator
                 if (!seenFav.Contains(assetId)) { DeletePlaceholder(rel); pruned++; }
             if (pruned > 0) Logger.Info("Pruned {0} un-favorited placeholders", pruned);
         }
+        if (allOk && _otherFailures == failuresBefore) _readyFolders.Add(favAbs);
     }
 
     /// <summary>
@@ -345,7 +357,8 @@ public sealed class PlaceholderPopulator
         catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Listing partners failed"); return; }
         if (partners.Count == 0) return; // none (or transient) → don't prune
 
-        EnsureFolder(PartnersFolderName);
+        string partnersRoot = EnsureFolder(PartnersFolderName);
+        int failuresBefore = _otherFailures;
         var usedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var currentFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -355,7 +368,7 @@ public sealed class PlaceholderPopulator
             string folderName = Disambiguate(SanitizeFolderName(partner.Name), usedFolders);
             string partnerRoot = Path.Combine(PartnersFolderName, folderName);
             currentFolders.Add(partnerRoot);
-            EnsureFolder(partnerRoot);
+            string partnerAbs = EnsureFolder(partnerRoot);
 
             List<ImmichClient.BucketRef> buckets;
             try { buckets = await _client.GetBucketsAsync(userId: partner.Id, ct: ct); }
@@ -376,10 +389,12 @@ public sealed class PlaceholderPopulator
                 foreach (var (rel, assetId) in _index.RowsUnderPrefix(partnerRoot + Path.DirectorySeparatorChar))
                     if (!seen.Contains(assetId)) { DeletePlaceholder(rel); pruned++; }
                 if (pruned > 0) Logger.Info("Partner '{0}': pruned {1} removed assets", partner.Name, pruned);
+                _readyFolders.Add(partnerAbs);
             }
         }
 
         PruneOrphanFolders(PartnersFolderName, currentFolders);
+        if (_otherFailures == failuresBefore) _readyFolders.Add(partnersRoot);
     }
 
     /// <summary>
@@ -391,7 +406,12 @@ public sealed class PlaceholderPopulator
         _index.EnsureCreated();
         Directory.CreateDirectory(_syncRootPath);
         var buckets = await _client.GetBucketsAsync(ct: ct);
-        if (buckets.Count > 0) await ProcessBucketAsync(buckets[0], "", null, ct, null);
+        if (buckets.Count > 0)
+        {
+            await ProcessBucketAsync(buckets[0], "", null, ct, null);
+            ct.ThrowIfCancellationRequested();
+            UpdateFolderSyncStates();
+        }
     }
 
     /// <summary>
@@ -437,7 +457,11 @@ public sealed class PlaceholderPopulator
             onAsset?.Invoke();
         }
 
-        if (newAssets.Count == 0) return true;
+        if (newAssets.Count == 0)
+        {
+            _readyFolders.Add(monthAbs);
+            return true;
+        }
 
         // Resolve metadata from the carried-over cache first (a layout migration already knows every
         // asset's size + name), then enrich only what's left — the timeline payload has neither.
@@ -483,6 +507,7 @@ public sealed class PlaceholderPopulator
         }
 
         if (indexRows.Count > 0) _index.UpsertMany(indexRows);
+        if (placeholdersOk) _readyFolders.Add(monthAbs);
         return placeholdersOk;
     }
 
@@ -514,6 +539,28 @@ public sealed class PlaceholderPopulator
         string abs = Path.Combine(_syncRootPath, name);
         Directory.CreateDirectory(abs);
         return abs;
+    }
+
+    /// <summary>
+    /// Convert or refresh only folders whose cloud children were fully enumerated. Children are
+    /// marked before their parents, so a failed child cannot leave its parent looking finished.
+    /// </summary>
+    private void UpdateFolderSyncStates()
+    {
+        var failed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string folder in _readyFolders.OrderByDescending(path => path.Length))
+        {
+            if (failed.Any(path => path.StartsWith(folder + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                failed.Add(folder);
+                continue;
+            }
+
+            if (!CloudFolderState.MarkInSync(folder)) failed.Add(folder);
+        }
+
+        _otherFailures += failed.Count;
     }
 
     /// <summary>Returns a name unique within <paramref name="used"/>, adding " (2)", " (3)", … on collision.</summary>

@@ -118,6 +118,17 @@ public sealed partial class StatusFlyout : Window
         SyncProgress.Visibility = syncing ? Visibility.Visible : Visibility.Collapsed;
         if (syncing) { SyncProgress.Maximum = Math.Max(total, 1); SyncProgress.Value = Math.Min(done, total); }
 
+        var (pinDone, pinTotal, pinActive) = dm.PinProgress;
+        bool downloadingPins = dm.Status == DriveStatus.Online && pinActive && pinTotal > 0;
+        PinProgressText.Visibility = downloadingPins ? Visibility.Visible : Visibility.Collapsed;
+        PinProgress.Visibility = downloadingPins ? Visibility.Visible : Visibility.Collapsed;
+        if (downloadingPins)
+        {
+            PinProgressText.Text = $"Downloading {pinDone:N0} of {pinTotal:N0} pinned photos…";
+            PinProgress.Maximum = pinTotal;
+            PinProgress.Value = pinDone;
+        }
+
         RetryButton.Visibility = dm.CanRetry || checking ? Visibility.Visible : Visibility.Collapsed;
         RetryButton.IsEnabled = !checking;
         RetryText.Text = checking ? "Checking…" : "Try again";
