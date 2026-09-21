@@ -20,11 +20,13 @@ public static partial class DriveSecurity
     [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
     private static partial void SHChangeNotify(int wEventId, uint uFlags, string dwItem1, IntPtr dwItem2);
 
-    // Deny: Delete, DeleteChild, WriteData/AddFile, WriteAttributes, WriteEA. We intentionally do NOT
+    // Deny content changes and deletion. WriteAttributes remains available so Explorer can set
+    // the pinned/unpinned cloud-file attributes for "Always keep on this device".
+    // We intentionally do NOT
     // deny AddSubdirectory (AD) so the provider can still create month/album/partner folders with a
     // normal CreateDirectory (cfapi only bypasses the deny for file placeholders, not folder creation).
     // The only "leak" is that the user can make empty folders — but never put a file in one (WD denied).
-    private const string DenyRights = "(OI)(CI)(DE,DC,WD,WA,WEA)";
+    private const string DenyRights = "(OI)(CI)(DE,DC,WD,WEA)";
 
     private static SecurityIdentifier CurrentUser => WindowsIdentity.GetCurrent().User!;
     private static string CurrentSid => CurrentUser.Value;

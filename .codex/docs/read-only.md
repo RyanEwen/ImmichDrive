@@ -6,9 +6,11 @@ files to Immich.
 
 ## Read-only (deny ACE)
 
-`DriveSecurity.ApplyReadOnly(syncRoot)` runs `icacls "<root>" /deny *<SID>:(OI)(CI)(DE,DC,WD,WA,WEA)`
+`DriveSecurity.ApplyReadOnly(syncRoot)` runs `icacls "<root>" /deny *<SID>:(OI)(CI)(DE,DC,WD,WEA)`
 for the current user, inherited by all current + future items. That denies Delete, DeleteChild,
-WriteData/AddFile, WriteAttributes, WriteExtendedAttributes → **blocks edit, new files, delete, rename**.
+WriteData/AddFile, WriteExtendedAttributes → **blocks edit, new files, delete, rename**.
+WriteAttributes stays allowed because Explorer uses it to set cloud-file pin attributes. This also
+means a user can alter ordinary file attributes; contents and deletions remain protected.
 
 **Why the provider still works:** cfapi placeholder ops (`CfCreatePlaceholders`) and hydration
 (`CfExecute`) are performed by the `cldflt` filter and **bypass the user's deny ACE** (verified on

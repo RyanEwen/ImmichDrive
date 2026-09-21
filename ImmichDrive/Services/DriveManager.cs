@@ -54,6 +54,8 @@ public sealed class DriveManager
     private Timer? _fastTimer;
     private Timer? _slowTimer;
     private UploadService? _upload;
+    private PinHydrationService? _pins;
+    private string? _populateIssue;
 
     // Offline watchdog: while the server is unreachable we stop polling the timeline and instead
     // re-probe on a backing-off schedule until it answers again. Passive by design — no balloon,
@@ -67,6 +69,10 @@ public sealed class DriveManager
     public DriveStatus Status { get; private set; } = DriveStatus.Disconnected;
     public string? StatusDetail { get; private set; }
     public (int Done, int Total) Progress { get; private set; }
+    public bool IsPopulating { get; private set; }
+    public string? SyncIssue => _populateIssue ?? (_pins?.HasFailures == true
+        ? "Some pinned photos could not be downloaded. Retrying in the background."
+        : null);
 
     /// <summary>When the server last answered us, or <see cref="DateTimeOffset.MinValue"/> if it never has
     /// this session. Shown in the flyout while offline so "how stale is this?" has an answer.</summary>
@@ -126,6 +132,8 @@ public sealed class DriveManager
             _provider = null;
             _upload?.Dispose();
             _upload = null;
+            _pins?.Dispose();
+            _pins = null;
 
             _client?.Dispose();
             _client = new ImmichClient(s.ServerUrl, s.ApiKey);
@@ -190,6 +198,8 @@ public sealed class DriveManager
             // and nothing came back), so let it nudge the reachability check.
             _provider.TransferFailed += NoteServerUnreachable;
             _provider.Connect(syncRoot);
+            _pins = new PinHydrationService(syncRoot, () => Status == DriveStatus.Online);
+            _pins.FailureStateChanged += () => StatusChanged?.Invoke();
 
             s.Connected = true;
             SettingsManager.SaveSettings();
@@ -407,11 +417,26 @@ public sealed class DriveManager
             }
             else
             {
-                var progress = new Progress<(int, int)>(p => { Progress = p; StatusChanged?.Invoke(); });
-                await pop.PopulateAsync(progress, ct);
+                IsPopulating = true;
+                _populateIssue = null;
+                Progress = default;
+                StatusChanged?.Invoke();
+                var progress = new InlineProgress<(int Done, int Total)>(p =>
+                {
+                    Progress = p;
+                    StatusChanged?.Invoke();
+                });
+                var result = await pop.PopulateAsync(progress, ct);
+                ct.ThrowIfCancellationRequested();
+                Progress = (result.Processed, result.Processed);
+                if (result.Failures > 0)
+                    _populateIssue = "Some photos could not be synced. Refresh to retry.";
                 _migrationCache = null; // consumed: the rebuilt index is now authoritative
-                SettingsManager.Current.LastSyncUtc = DateTimeOffset.UtcNow;
-                SettingsManager.SaveSettings();
+                if (result.Failures == 0)
+                {
+                    SettingsManager.Current.LastSyncUtc = DateTimeOffset.UtcNow;
+                    SettingsManager.SaveSettings();
+                }
             }
             NoteServerReachable();   // a completed populate is proof the server is answering
         }
@@ -419,9 +444,20 @@ public sealed class DriveManager
         catch (Exception ex)
         {
             Logger.Warn(ex, "Populate failed (newestOnly={0})", newestOnly);
+            if (!newestOnly) _populateIssue = "Some photos could not be synced. Refresh to retry.";
             NoteServerUnreachable(ex);
         }
-        finally { _populateLock.Release(); }
+        finally
+        {
+            if (!newestOnly) { IsPopulating = false; StatusChanged?.Invoke(); }
+            _populateLock.Release();
+        }
+    }
+
+    /// <summary>Reports progress in order, including the final update, on the populate thread.</summary>
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 
     /// <summary>Re-runs full population against the server (e.g. tray "Refresh").</summary>
@@ -666,9 +702,12 @@ public sealed class DriveManager
         _fastTimer?.Dispose(); _fastTimer = null;
         _slowTimer?.Dispose(); _slowTimer = null;
         _upload?.Dispose(); _upload = null;
+        _pins?.Dispose(); _pins = null;
         if (!string.IsNullOrWhiteSpace(SettingsManager.Current.ServerUrl))
             try { DriveSecurity.RemoveReadOnly(SettingsManager.Current.EffectiveSyncRootPath); } catch { }
         _populateCts?.Cancel();
+        IsPopulating = false;
+        _populateIssue = null;
         _provider?.Disconnect();
         _provider = null;
         if (!string.IsNullOrWhiteSpace(SettingsManager.Current.ServerUrl))

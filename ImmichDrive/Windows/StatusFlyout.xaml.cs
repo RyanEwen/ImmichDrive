@@ -78,12 +78,14 @@ public sealed partial class StatusFlyout : Window
         if (_closed) return;
         var dm = DriveManager.Current;
         var (done, total) = dm.Progress;
-        bool syncing = dm.Status == DriveStatus.Online && total > 0 && done < total;
+        bool syncing = dm.Status == DriveStatus.Online && dm.IsPopulating;
         bool checking = dm.IsCheckingConnection;
 
         StatusText.Text = checking ? "Checking the connection…" : dm.Status switch
         {
-            DriveStatus.Online when syncing => $"Syncing {done:N0} of {total:N0}…",
+            DriveStatus.Online when syncing && total > done => $"Syncing {done:N0} of about {total:N0}…",
+            DriveStatus.Online when syncing => "Finishing sync…",
+            DriveStatus.Online when dm.SyncIssue != null => "Some photos could not be synced",
             DriveStatus.Online => "Up to date",
             DriveStatus.Connecting => "Connecting…",
             DriveStatus.Offline => "Can't reach Immich",
@@ -107,13 +109,14 @@ public sealed partial class StatusFlyout : Window
         {
             DriveStatus.Offline when checking => null,
             DriveStatus.Offline => $"Your photos are still listed{LastContactSuffix(dm)}. Retrying in the background.",
+            DriveStatus.Online when dm.SyncIssue != null => dm.SyncIssue,
             _ => null,
         };
         DetailText.Text = detail ?? "";
         DetailText.Visibility = detail is null ? Visibility.Collapsed : Visibility.Visible;
 
         SyncProgress.Visibility = syncing ? Visibility.Visible : Visibility.Collapsed;
-        if (syncing) { SyncProgress.Maximum = total; SyncProgress.Value = done; }
+        if (syncing) { SyncProgress.Maximum = Math.Max(total, 1); SyncProgress.Value = Math.Min(done, total); }
 
         RetryButton.Visibility = dm.CanRetry || checking ? Visibility.Visible : Visibility.Collapsed;
         RetryButton.IsEnabled = !checking;

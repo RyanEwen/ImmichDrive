@@ -65,8 +65,10 @@ For each asset fill a `CF_PLACEHOLDER_CREATE_INFO` (see `CreatePlaceholder`):
 
 - `RelativeFileName` — the file name only (it's relative to the `baseDir` arg, i.e. the month/
   album folder), e.g. `IMG_1234.jpg`.
-- `FsMetadata.FileSize` — original size (enriched from `/assets/{id}` `exifInfo.fileSizeInByte`,
-  or 0 if unknown; a non-zero size is needed for correct Explorer display + range hydration).
+- `FsMetadata.FileSize` — original size, enriched from `/assets/{id}`
+  `exifInfo.fileSizeInByte`. A non-zero size is required for correct Explorer display and range
+  hydration. If metadata is
+  unavailable, creation fails visibly and is retried on the next populate.
 - `FsMetadata.BasicInfo` — `FILE_BASIC_INFO` with all four timestamps set from `fileCreatedAt`;
   attribute `FILE_ATTRIBUTE_NORMAL` (0x80).
 - `FileIdentity` — pointer to UTF‑8 **Immich asset id** bytes; `FileIdentityLength` set. This is
@@ -113,6 +115,16 @@ a no-op stub — a production build would signal the matching in-flight transfer
 `TransferKey`) to stop.
 
 ## 5. Dehydration / cleanup
+
+`PinHydrationService` watches attribute changes under the sync root. When Explorer marks a file or
+folder pinned, it calls `CfHydratePlaceholder` on offline files so "Always keep on this device"
+actually downloads content. It scans existing pins at startup and retries pending requests after
+the server comes back. A failed download appears in the drive status until it succeeds. Upload is
+excluded. A folder pin queues its descendant files.
+
+The timeline's bucket counts are estimates. The UI shows a running count only while a populate is
+active; after a successful pass it records the actual processed count. Failed buckets or placeholder
+writes leave a visible sync warning rather than making an incomplete pass look up to date.
 
 `HydrationPolicyModifier = AutoDehydrationAllowed` lets Windows reclaim space automatically.
 To force-free a file: `CfDehydratePlaceholder`. On disconnect-account we unregister the sync

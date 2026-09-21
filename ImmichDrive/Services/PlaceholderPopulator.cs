@@ -44,6 +44,7 @@ public sealed class PlaceholderPopulator
     /// whole library. Null on a normal first sync.
     /// </summary>
     private readonly IReadOnlyDictionary<string, (long Size, bool IsVideo, string Name)>? _metaCache;
+    private int _otherFailures;
 
     public PlaceholderPopulator(ImmichClient client, AssetIndex index, string syncRootPath,
         IReadOnlyDictionary<string, (long Size, bool IsVideo, string Name)>? metaCache = null)
@@ -54,8 +55,11 @@ public sealed class PlaceholderPopulator
         _metaCache = metaCache;
     }
 
+    /// <summary>Result of a full timeline pass. Failed buckets or placeholder writes need a retry.</summary>
+    public readonly record struct PopulateResult(int Processed, int EstimatedTotal, int Failures);
+
     /// <summary>Full populate over the whole timeline. Reports (processed, totalApprox) as it goes.</summary>
-    public async Task PopulateAsync(IProgress<(int Done, int Total)>? progress = null, CancellationToken ct = default)
+    public async Task<PopulateResult> PopulateAsync(IProgress<(int Done, int Total)>? progress = null, CancellationToken ct = default)
     {
         _index.EnsureCreated();
         Directory.CreateDirectory(_syncRootPath);
@@ -67,10 +71,13 @@ public sealed class PlaceholderPopulator
 
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool allOk = true;
+        int failedBuckets = 0;
         foreach (var bucket in buckets) // newest first
         {
             ct.ThrowIfCancellationRequested();
-            allOk &= await ProcessBucketAsync(bucket, "", null, ct, () => progress?.Report((++done, total)), seenIds);
+            bool bucketOk = await ProcessBucketAsync(bucket, "", null, ct,
+                () => progress?.Report((++done, total)), seenIds);
+            if (!bucketOk) { allOk = false; failedBuckets++; }
         }
 
         // Only prune when we have the complete picture (no bucket fetch failed), so a transient
@@ -80,8 +87,14 @@ public sealed class PlaceholderPopulator
         await PopulateAlbumsAsync(ct);
         await PopulateFavoritesAsync(ct);
         await PopulatePartnersAsync(ct);
+        ct.ThrowIfCancellationRequested();
 
-        Logger.Info("Populate complete: {0} processed, {1} indexed, across {2} buckets", done, _index.Count(), buckets.Count);
+        if (total != done)
+            Logger.Warn("Timeline count changed or assets were skipped: {0} processed of {1} estimated", done, total);
+        int failures = failedBuckets + _otherFailures;
+        Logger.Info("Populate complete: {0} processed, {1} indexed, across {2} buckets ({3} failures)",
+            done, _index.Count(), buckets.Count, failures);
+        return new PopulateResult(done, total, failures);
     }
 
     /// <summary>Removes main-timeline placeholders whose asset no longer exists in Immich's timeline.</summary>
@@ -125,7 +138,7 @@ public sealed class PlaceholderPopulator
     {
         List<ImmichClient.AlbumRef> albums;
         try { albums = await _client.GetAlbumsAsync(ct); }
-        catch (Exception ex) { Logger.Warn(ex, "Listing albums failed"); return; }
+        catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Listing albums failed"); return; }
         if (albums.Count == 0) return; // empty (or a transient failure) → don't prune anything
 
         EnsureFolder(AlbumsFolderName);
@@ -144,7 +157,7 @@ public sealed class PlaceholderPopulator
 
             List<ImmichAsset> assets;
             try { assets = await _client.GetAlbumAssetsAsync(album.Id, ct); }
-            catch (Exception ex) { Logger.Warn(ex, "Album {0} fetch failed", album.Name); continue; }
+            catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Album {0} fetch failed", album.Name); continue; }
 
             var currentIds = new HashSet<string>(assets.Select(a => a.Id), StringComparer.OrdinalIgnoreCase);
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -192,7 +205,7 @@ public sealed class PlaceholderPopulator
                     CreatePlaceholder(albumAbs, fileName, asset.Id, asset.FileSizeBytes, asset.IsVideo, asset.FileCreatedAt);
                     indexRows.Add((rel2, asset.Id, asset.IsVideo, asset.FileSizeBytes));
                 }
-                catch (Exception ex) { Logger.Warn(ex, "Album placeholder failed for asset {0}", asset.Id); }
+                catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Album placeholder failed for asset {0}", asset.Id); }
             }
             if (indexRows.Count > 0) _index.UpsertMany(indexRows);
 
@@ -262,7 +275,7 @@ public sealed class PlaceholderPopulator
     {
         List<ImmichClient.BucketRef> buckets;
         try { buckets = await _client.GetBucketsAsync(isFavorite: true, ct: ct); }
-        catch (Exception ex) { Logger.Warn(ex, "Listing favorite buckets failed"); return; }
+        catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Listing favorite buckets failed"); return; }
 
         string favAbs = EnsureFolder(FavoritesFolderName);
         string favPrefix = FavoritesFolderName + Path.DirectorySeparatorChar;
@@ -276,7 +289,7 @@ public sealed class PlaceholderPopulator
             ct.ThrowIfCancellationRequested();
             List<ImmichAsset> assets;
             try { assets = await _client.GetBucketAssetsAsync(bucket.Raw, isFavorite: true, ct: ct); }
-            catch (Exception ex) { Logger.Warn(ex, "Favorite bucket {0} failed", bucket.Raw); allOk = false; continue; }
+            catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Favorite bucket {0} failed", bucket.Raw); allOk = false; continue; }
 
             foreach (var asset in assets)
             {
@@ -307,7 +320,7 @@ public sealed class PlaceholderPopulator
                     CreatePlaceholder(favAbs, fileName, asset.Id, asset.FileSizeBytes, asset.IsVideo, asset.FileCreatedAt);
                     indexRows.Add((Path.Combine(FavoritesFolderName, fileName), asset.Id, asset.IsVideo, asset.FileSizeBytes));
                 }
-                catch (Exception ex) { Logger.Warn(ex, "Favorite placeholder failed for asset {0}", asset.Id); }
+                catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Favorite placeholder failed for asset {0}", asset.Id); }
             }
             if (indexRows.Count > 0) _index.UpsertMany(indexRows);
         }
@@ -329,7 +342,7 @@ public sealed class PlaceholderPopulator
     {
         List<ImmichClient.PartnerRef> partners;
         try { partners = await _client.GetPartnersAsync(ct); }
-        catch (Exception ex) { Logger.Warn(ex, "Listing partners failed"); return; }
+        catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Listing partners failed"); return; }
         if (partners.Count == 0) return; // none (or transient) → don't prune
 
         EnsureFolder(PartnersFolderName);
@@ -346,14 +359,15 @@ public sealed class PlaceholderPopulator
 
             List<ImmichClient.BucketRef> buckets;
             try { buckets = await _client.GetBucketsAsync(userId: partner.Id, ct: ct); }
-            catch (Exception ex) { Logger.Warn(ex, "Partner {0} buckets failed", partner.Name); continue; }
+            catch (Exception ex) { _otherFailures++; Logger.Warn(ex, "Partner {0} buckets failed", partner.Name); continue; }
 
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             bool allOk = true;
             foreach (var bucket in buckets)
             {
                 ct.ThrowIfCancellationRequested();
-                allOk &= await ProcessBucketAsync(bucket, partnerRoot, partner.Id, ct, null, seen);
+                bool bucketOk = await ProcessBucketAsync(bucket, partnerRoot, partner.Id, ct, null, seen);
+                if (!bucketOk) { allOk = false; _otherFailures++; }
             }
 
             if (allOk)
@@ -454,6 +468,7 @@ public sealed class PlaceholderPopulator
             }
 
         var indexRows = new List<(string, string, bool, long)>();
+        bool placeholdersOk = true;
         foreach (var asset in newAssets)
         {
             ct.ThrowIfCancellationRequested();
@@ -463,12 +478,12 @@ public sealed class PlaceholderPopulator
                 CreatePlaceholder(monthAbs, fileName, asset.Id, asset.FileSizeBytes, asset.IsVideo, asset.FileCreatedAt);
                 indexRows.Add((Path.Combine(monthRel, fileName), asset.Id, asset.IsVideo, asset.FileSizeBytes));
             }
-            catch (Exception ex) { Logger.Warn(ex, "Placeholder failed for asset {0}", asset.Id); }
+            catch (Exception ex) { placeholdersOk = false; Logger.Warn(ex, "Placeholder failed for asset {0}", asset.Id); }
             onAsset?.Invoke();
         }
 
         if (indexRows.Count > 0) _index.UpsertMany(indexRows);
-        return true;
+        return placeholdersOk;
     }
 
     /// <summary>Readable month folder name, e.g. "2026-06 June" (the yyyy-MM prefix keeps it sortable).
@@ -517,6 +532,11 @@ public sealed class PlaceholderPopulator
     /// <summary>Creates a single dehydrated, in-sync file placeholder with the asset id as identity.</summary>
     private static void CreatePlaceholder(string baseDir, string fileName, string assetId, long size, bool isVideo, DateTimeOffset createdAt)
     {
+        // A zero-length cloud file can never request the original bytes during hydration.
+        // Leave it unindexed so the next populate can retry metadata enrichment.
+        if (size <= 0)
+            throw new InvalidOperationException($"Asset {assetId} has no usable file size");
+
         IntPtr identity = IntPtr.Zero;
         try
         {
@@ -550,7 +570,7 @@ public sealed class PlaceholderPopulator
 
             int hr = CfCreatePlaceholders(baseDir, infos, 1, CF_CREATE_FLAGS.CF_CREATE_FLAG_NONE, out _);
             if (hr < 0 && hr != unchecked((int)0x800700B7)) // ignore "already exists"
-                Logger.Warn("CfCreatePlaceholders 0x{0:X8} for {1}", hr, fileName);
+                throw new COMException($"CfCreatePlaceholders failed for {fileName}", hr);
         }
         finally
         {

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace ImmichDrive.Classes.CloudFilter;
 
@@ -202,4 +203,9 @@ internal static partial class CfApi
 
     [DllImport(Dll)]
     public static extern int CfReleaseTransferKey(IntPtr fileHandle, ref long transferKey);
+
+    /// <summary>Requests all missing bytes of a pinned placeholder from the connected provider.</summary>
+    [LibraryImport(Dll)]
+    public static partial int CfHydratePlaceholder(
+        SafeFileHandle fileHandle, long startingOffset, long length, uint hydrateFlags, IntPtr overlapped);
 }

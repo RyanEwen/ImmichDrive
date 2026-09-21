@@ -38,6 +38,8 @@ public sealed partial class HomePage : Page
 
         (StatusBar.Severity, StatusBar.Title, StatusBar.Message) = dm.Status switch
         {
+            DriveStatus.Online when dm.SyncIssue != null =>
+                (InfoBarSeverity.Warning, "Some photos could not be synced", dm.SyncIssue),
             DriveStatus.Online => (InfoBarSeverity.Success, "Online", dm.StatusDetail ?? "Your drive is connected."),
             DriveStatus.Connecting => (InfoBarSeverity.Informational, "Connecting…", dm.StatusDetail ?? ""),
             DriveStatus.Offline => (InfoBarSeverity.Warning, "Can't reach Immich",
@@ -49,10 +51,10 @@ public sealed partial class HomePage : Page
         };
 
         var (done, total) = dm.Progress;
-        bool syncing = dm.Status == DriveStatus.Online && total > 0 && done < total;
+        bool syncing = dm.Status == DriveStatus.Online && dm.IsPopulating;
         SyncProgress.Visibility = syncing ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
-        if (syncing) { SyncProgress.Maximum = total; SyncProgress.Value = done; }
-        DetailText.Text = syncing ? $"Syncing {done:N0} of {total:N0} photos…"
+        if (syncing) { SyncProgress.Maximum = Math.Max(total, 1); SyncProgress.Value = Math.Min(done, total); }
+        DetailText.Text = syncing ? total > done ? $"Syncing {done:N0} of about {total:N0} photos…" : "Finishing sync…"
             : SettingsManager.Current.LastSyncUtc > DateTimeOffset.MinValue
                 ? $"Last updated {SettingsManager.Current.LastSyncUtc.ToLocalTime():g}" : "";
     }

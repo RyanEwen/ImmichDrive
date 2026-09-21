@@ -125,8 +125,10 @@ public sealed partial class MainWindow : Window
 
         string tip = dm.Status switch
         {
-            DriveStatus.Online when dm.Progress.Total > 0 && dm.Progress.Done < dm.Progress.Total
-                => $"Drive for Immich — syncing {dm.Progress.Done}/{dm.Progress.Total}",
+            DriveStatus.Online when dm.IsPopulating && dm.Progress.Total > dm.Progress.Done
+                => $"Drive for Immich: syncing {dm.Progress.Done}/{dm.Progress.Total}",
+            DriveStatus.Online when dm.IsPopulating => "Drive for Immich: finishing sync",
+            DriveStatus.Online when dm.SyncIssue != null => "Drive for Immich: sync needs attention",
             DriveStatus.Online => $"Drive for Immich — online",
             DriveStatus.Connecting => "Drive for Immich — connecting…",
             DriveStatus.Offline => "Drive for Immich — can't reach Immich, retrying…",
@@ -224,7 +226,9 @@ public sealed partial class MainWindow : Window
         var (done, total) = dm.Progress;
         string status = dm.Status switch
         {
-            DriveStatus.Online when total > 0 && done < total => $"Syncing {done:N0} of {total:N0}…",
+            DriveStatus.Online when dm.IsPopulating && total > done => $"Syncing {done:N0} of about {total:N0}…",
+            DriveStatus.Online when dm.IsPopulating => "Finishing sync…",
+            DriveStatus.Online when dm.SyncIssue != null => "Some photos could not be synced",
             DriveStatus.Online => "Up to date",
             DriveStatus.Connecting => "Connecting…",
             DriveStatus.Offline => "Can't reach Immich",

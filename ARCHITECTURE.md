@@ -99,6 +99,10 @@ do), and the provider lifts the deny per-item when it needs to prune. The sync-r
 also gets a custom Explorer icon via a `desktop.ini` written at connect (the folder is
 flagged `ReadOnly` so Explorer honors it).
 
+Write Attributes remains available so Explorer can pin photos and folders. `PinHydrationService`
+watches these changes, downloads pinned placeholders, and resumes pending downloads after a
+restart or a temporary connection failure. The drive status reports failed downloads.
+
 The only writable spot is the `Upload` folder (inheritance broken, full control granted).
 `UploadService` watches it; a file dropped there is POSTed to Immich (`/api/assets`) and the
 local copy deleted. Sync is therefore one-way (Immich → PC) for everything the user sees,

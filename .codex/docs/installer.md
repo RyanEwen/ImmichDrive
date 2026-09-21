@@ -40,7 +40,7 @@ declaratively (no manual HKCR writes).
 
 The manifest's `<Identity>` holds the **real Partner Center** values — `Name`
 `27766TechnicallyReal.ImmichDrive`, `Publisher` `CN=C21E6CEF-D0D1-4497-93F9-3718D054DA0E`,
-`PublisherDisplayName` `TechnicallyReal`.
+`PublisherDisplayName` `Dynamic Solutions Canada`.
 
 - **Signed (sideload) builds** — `build-msix.ps1` swaps `Name` → `ImmichDrive` and `Publisher`
   → the signing cert's subject so sideload installs form a stable local package family that
