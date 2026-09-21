@@ -80,7 +80,8 @@ Folders begin as ordinary directories while their contents are enumerated. After
 pass, `CloudFolderState` converts each folder to an in-sync cloud placeholder, or updates an
 existing placeholder. This includes ordinary folders from older installations. Process children
 before parents and leave incomplete folders unmarked so Explorer does not show a finished badge
-for a failed enumeration. The writable `Upload` folder is excluded. The
+for a failed enumeration. Mark the sync root too after a complete pass with no pending uploads.
+The writable `Upload` folder is excluded. The
 "already exists" HRESULT `0x800700B7` is ignored. We also write a row to the SQLite `AssetIndex`
 (`rel_path` ⇄ `asset_id`, plus `is_video`/`size`) for the thumbnail extension and for
 self-healing re-creation without a network round-trip.
@@ -104,7 +105,8 @@ itself returns promptly and offloads the work to a `Task`. Steps:
 
 1. Decode `FileIdentity` → UTF‑8 **Immich asset id** (`ReadFileIdentity`, length-bounded).
 2. `GET /api/assets/{id}/original` with `Range: bytes=offset-…` for the required slice.
-3. Loop reading the HTTP stream in 1 MiB chunks; for each chunk build a `CF_OPERATION_INFO`
+3. Loop reading the HTTP stream in 256 KiB chunks so slow transfers can report progress sooner;
+   for each chunk build a `CF_OPERATION_INFO`
    (`Type = CF_OPERATION_TYPE_TRANSFER_DATA`, `ConnectionKey`, `TransferKey`, `RequestKey`) and a
    `CF_OPERATION_PARAMETERS_TRANSFERDATA` (`Buffer`, `Offset`, `Length`, `CompletionStatus =
    STATUS_SUCCESS`) and call `CfExecute(in opInfo, ref opParams)`.
@@ -128,6 +130,8 @@ excluded. A folder pin queues its descendant files. The Home page and tray flyou
 number of files downloaded for the current pin operation. The total grows as folder contents
 are discovered; the Cloud Files platform tracks transfer progress for each file. Traverse
 cloud placeholder directories, which are reparse points, but skip symbolic links and junctions.
+After a pin batch completes, reassert the in-sync state of its existing cloud folders and notify
+Explorer so a stale pending badge can update. An ordinary folder is only converted by population.
 
 The timeline's bucket counts are estimates. The UI shows a running count only while a populate is
 active; after a successful pass it records the actual processed count. Failed buckets or placeholder

@@ -6,8 +6,8 @@ files to Immich.
 
 ## Read-only (deny ACE)
 
-`DriveSecurity.ApplyReadOnly(syncRoot)` runs `icacls "<root>" /deny *<SID>:(OI)(CI)(DE,DC,WD,WEA)`
-for the current user, inherited by all current + future items. That denies Delete, DeleteChild,
+`DriveSecurity.EnsureReadOnly(syncRoot)` installs an inheritable deny ACE equivalent to
+`(OI)(CI)(DE,DC,WD,WEA)` for the current user. That denies Delete, DeleteChild,
 WriteData/AddFile, WriteExtendedAttributes → **blocks edit, new files, delete, rename**.
 WriteAttributes stays allowed because Explorer uses it to set cloud-file pin attributes. This also
 means a user can alter ordinary file attributes; contents and deletions remain protected.
@@ -30,16 +30,17 @@ the content-write ACE. They do not grant permission to add or edit files.
   beats the inherited deny) before deleting; `PruneOrphanFolders`/wipe call `AllowDeleteTree`
   (`icacls /grant … /T`).
 
-Applied on connect on a background thread (icacls over ~47k files ≈ 4s). The drive is **always**
-read-only (no setting) — the sync is one-way, so local writes would only be silently reverted or
-lost. `RemoveReadOnly` is still used on disconnect and before a layout-migration wipe.
+Checked on connect on a background thread. The correct existing ACE is left alone, avoiding a
+slow remove-and-add operation over large libraries. If an older ACE still denies WriteAttributes,
+`EnsureReadOnly` replaces just the app's old ACE in one security-descriptor update, preserving
+unrelated rules. An `icacls` timeout in cleanup terminates the process before returning, so it
+cannot continue changing permissions after the next step. The drive is always read-only (no
+setting). `RemoveReadOnly` remains for disconnect and layout-migration cleanup.
 
-**Connect ordering:** because the deny persists on disk across sessions, connect does
-`RemoveReadOnly` → `SetFolderIcon` (writes the root `desktop.ini` that gives the folder the app icon
-in Explorer; needs the folder writable) → `ApplyReadOnly`. The desktop.ini then inherits the deny;
-it's rewritten on each connect (so an icon change propagates). The root folder also carries the
-ReadOnly *attribute* (Explorer only reads desktop.ini on ReadOnly/System folders) — that's just the
-"customized folder" flag and doesn't affect the ACL.
+**Connect ordering:** `SetFolderIcon` checks the root `desktop.ini` content and avoids rewriting
+it if the stable icon path is already set. Then `EnsureReadOnly` validates or repairs the deny.
+`desktop.ini` remains Hidden and System; excluding it from the ACL is unnecessary. The root
+ReadOnly *attribute* makes Explorer read the icon file and does not change the ACL.
 
 ## Upload folder
 

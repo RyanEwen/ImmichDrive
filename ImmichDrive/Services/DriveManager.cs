@@ -371,12 +371,11 @@ public sealed class DriveManager
         {
             try
             {
-                // Give the root folder our icon in Explorer (writes desktop.ini) while it's still
-                // writable — the deny ACE persists from a prior session, so lift it first.
-                DriveSecurity.RemoveReadOnly(syncRoot);
+                // The stable desktop.ini normally needs no rewrite. Preserve the existing deny
+                // instead of propagating a remove-and-add ACL cycle over a large library.
                 DriveSecurity.SetFolderIcon(syncRoot, Path.Combine(StableIconDir, "ImmichDrive.ico"));
 
-                DriveSecurity.ApplyReadOnly(syncRoot);          // the drive is always read-only
+                DriveSecurity.EnsureReadOnly(syncRoot);         // the drive is always read-only
                 DriveSecurity.EnsureUploadWritable(uploadDir);  // …except the Upload folder
             }
             catch (Exception ex) { Logger.Warn(ex, "Security setup failed"); }

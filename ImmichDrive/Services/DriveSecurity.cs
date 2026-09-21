@@ -26,16 +26,46 @@ public static partial class DriveSecurity
     // deny AddSubdirectory (AD) so the provider can still create month/album/partner folders with a
     // normal CreateDirectory (cfapi only bypasses the deny for file placeholders, not folder creation).
     // The only "leak" is that the user can make empty folders — but never put a file in one (WD denied).
-    private const string DenyRights = "(OI)(CI)(DE,DC,WD,WEA)";
+    private const FileSystemRights DeniedContentRights = FileSystemRights.Delete |
+        FileSystemRights.DeleteSubdirectoriesAndFiles | FileSystemRights.CreateFiles |
+        FileSystemRights.WriteExtendedAttributes;
 
     private static SecurityIdentifier CurrentUser => WindowsIdentity.GetCurrent().User!;
     private static string CurrentSid => CurrentUser.Value;
 
-    /// <summary>Applies the read-only deny ACE to the sync root (inherited by all current + future items).</summary>
-    public static void ApplyReadOnly(string syncRoot)
+    /// <summary>
+    /// Keep a correct deny untouched, or replace only our older content-protection ACE. Updating
+    /// the root security descriptor in one step preserves unrelated rules and avoids a writable gap.
+    /// </summary>
+    public static void EnsureReadOnly(string syncRoot)
     {
-        if (RunIcacls($"\"{syncRoot}\" /deny *{CurrentSid}:{DenyRights}"))
+        try
+        {
+            var directory = new DirectoryInfo(syncRoot);
+            var security = directory.GetAccessControl();
+            var rules = security
+                .GetAccessRules(includeExplicit: true, includeInherited: false, typeof(SecurityIdentifier))
+                .OfType<FileSystemAccessRule>()
+                .Where(rule => rule.AccessControlType == AccessControlType.Deny &&
+                    rule.IdentityReference.Equals(CurrentUser) &&
+                    (rule.FileSystemRights & DeniedContentRights) == DeniedContentRights &&
+                    (rule.InheritanceFlags & (InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit)) ==
+                        (InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit))
+                .ToList();
+
+            bool correct = rules.Count == 1 &&
+                (rules[0].FileSystemRights & ~FileSystemRights.Synchronize) == DeniedContentRights &&
+                rules[0].PropagationFlags == PropagationFlags.None;
+            if (correct) return;
+
+            foreach (var rule in rules) security.RemoveAccessRuleSpecific(rule);
+            security.AddAccessRule(new FileSystemAccessRule(CurrentUser, DeniedContentRights,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None, AccessControlType.Deny));
+            directory.SetAccessControl(security);
             Logger.Info("Applied read-only deny ACE to {0}", syncRoot);
+        }
+        catch (Exception ex) { Logger.Warn(ex, "Checking read-only ACL failed for {0}", syncRoot); }
     }
 
     /// <summary>Removes the read-only deny ACE (drive becomes writable again).</summary>
@@ -56,24 +86,31 @@ public static partial class DriveSecurity
     /// <summary>
     /// Gives the sync-root folder a custom icon in Explorer's file listing / This PC by writing a
     /// <c>desktop.ini</c> that points at the app .ico and flagging the folder ReadOnly (Explorer only
-    /// honors desktop.ini on ReadOnly/System folders). Must run while the folder is writable — the
-    /// read-only deny ACE blocks the write — so call this after <see cref="RemoveReadOnly"/> and before
-    /// <see cref="ApplyReadOnly"/>.
+    /// honors desktop.ini on ReadOnly/System folders). The icon path is stable across upgrades,
+    /// so an existing matching file does not need an ACL change or rewrite on every launch.
     /// </summary>
     public static void SetFolderIcon(string folder, string icoPath)
     {
         try
         {
             string ini = Path.Combine(folder, "desktop.ini");
-            if (File.Exists(ini)) File.SetAttributes(ini, FileAttributes.Normal);
-            File.WriteAllText(ini, $"[.ShellClassInfo]\r\nIconResource={icoPath},0\r\nConfirmFileOp=0\r\n");
+            string content = $"[.ShellClassInfo]\r\nIconResource={icoPath},0\r\nConfirmFileOp=0\r\n";
+            if (!File.Exists(ini) || File.ReadAllText(ini) != content)
+            {
+                if (File.Exists(ini)) File.SetAttributes(ini, FileAttributes.Normal);
+                File.WriteAllText(ini, content);
+            }
             File.SetAttributes(ini, FileAttributes.Hidden | FileAttributes.System);
             new DirectoryInfo(folder).Attributes |= FileAttributes.ReadOnly;
-            SHChangeNotify(0x00001000, 0x0005, folder, IntPtr.Zero); // SHCNE_UPDATEDIR, SHCNF_PATHW
+            NotifyFolderChanged(folder);
             Logger.Info("Set folder icon on {0}", folder);
         }
         catch (Exception ex) { Logger.Warn(ex, "SetFolderIcon failed for {0}", folder); }
     }
+
+    /// <summary>Ask Explorer to refresh a folder after its icon or Cloud Files state changes.</summary>
+    public static void NotifyFolderChanged(string folder) =>
+        SHChangeNotify(0x00001000, 0x0005, folder, IntPtr.Zero); // SHCNE_UPDATEDIR, SHCNF_PATHW
 
     /// <summary>Grants the current user delete on a single file so the provider can prune it despite the deny.</summary>
     public static void AllowDeleteFile(string path)
@@ -101,11 +138,17 @@ public static partial class DriveSecurity
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
             });
             if (p == null) return false;
-            p.WaitForExit(60000);
+            if (!p.WaitForExit(120000))
+            {
+                p.Kill(entireProcessTree: true);
+                p.WaitForExit();
+                Logger.Warn("icacls timed out: {0}", args);
+                return false;
+            }
             if (p.ExitCode != 0) Logger.Warn("icacls {0} exited {1}", args, p.ExitCode);
             return p.ExitCode == 0;
         }

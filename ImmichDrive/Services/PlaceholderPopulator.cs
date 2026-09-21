@@ -89,6 +89,8 @@ public sealed class PlaceholderPopulator
         await PopulateFavoritesAsync(ct);
         await PopulatePartnersAsync(ct);
         ct.ThrowIfCancellationRequested();
+        if (allOk && _otherFailures == 0 && UploadIsEmpty())
+            _readyFolders.Add(_syncRootPath);
         UpdateFolderSyncStates();
 
         if (total != done)
@@ -561,6 +563,18 @@ public sealed class PlaceholderPopulator
         }
 
         _otherFailures += failed.Count;
+    }
+
+    /// <summary>The writable Upload area may contain files still waiting to reach Immich.</summary>
+    private bool UploadIsEmpty()
+    {
+        string path = Path.Combine(_syncRootPath, UploadService.UploadFolderName);
+        try { return !Directory.Exists(path) || !Directory.EnumerateFileSystemEntries(path).Any(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger.Warn(ex, "Could not inspect pending uploads before updating root state");
+            return false;
+        }
     }
 
     /// <summary>Returns a name unique within <paramref name="used"/>, adding " (2)", " (3)", … on collision.</summary>

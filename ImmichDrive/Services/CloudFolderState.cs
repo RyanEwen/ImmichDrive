@@ -50,12 +50,32 @@ internal static partial class CloudFolderState
             if (hr < 0)
                 throw new COMException($"Cloud folder state update failed for {path}", hr);
 
+            DriveSecurity.NotifyFolderChanged(path);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception or COMException)
         {
             Logger.Warn(ex, "Could not mark folder in sync: {0}", path);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Reassert state after a folder pin finishes. Do not convert an ordinary directory here:
+    /// only population knows when its contents have been completely enumerated.
+    /// </summary>
+    public static void RefreshExisting(string path)
+    {
+        try
+        {
+            var directory = new DirectoryInfo(path);
+            if (directory.Exists && directory.LinkTarget == null &&
+                (directory.Attributes & FileAttributes.ReparsePoint) != 0)
+                MarkInSync(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger.Debug(ex, "Could not refresh folder after pinning: {0}", path);
         }
     }
 }

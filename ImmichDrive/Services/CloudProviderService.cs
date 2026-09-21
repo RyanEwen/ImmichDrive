@@ -12,7 +12,9 @@ namespace ImmichDrive.Services;
 public sealed class CloudProviderService : IDisposable
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
-    private const int ChunkBytes = 1 << 20; // 1 MiB — a multiple of the disk sector size
+    // Transfer smaller aligned chunks so slow originals make visible progress before Windows'
+    // Cloud Files request deadline, instead of waiting for a full megabyte per callback.
+    private const int ChunkBytes = 256 << 10;
 
     private readonly ImmichClient _client;
     private long _connectionKey;

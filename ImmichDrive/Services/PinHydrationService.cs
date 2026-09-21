@@ -26,6 +26,7 @@ public sealed class PinHydrationService : IDisposable
     private readonly object _progressLock = new();
     private readonly HashSet<string> _trackedFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _completedTrackedFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _foldersToRefresh = new(StringComparer.OrdinalIgnoreCase);
     private (int Done, int Total, bool Active) _lastReportedProgress;
     private int _busy;
     private int _scanning;
@@ -118,6 +119,11 @@ public sealed class PinHydrationService : IDisposable
                 _completedTrackedFiles.Clear();
             }
             _trackedFiles.Add(path);
+            for (string? folder = Path.GetDirectoryName(path);
+                 folder != null && !folder.Equals(_root, StringComparison.OrdinalIgnoreCase) &&
+                 folder.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+                 folder = Path.GetDirectoryName(folder))
+                _foldersToRefresh.Add(folder);
         }
     }
 
@@ -196,7 +202,11 @@ public sealed class PinHydrationService : IDisposable
                 new ParallelOptions { MaxDegreeOfParallelism = 4 },
                 item => ProcessPendingItem(item.Key, item.Value));
         }
-        finally { Interlocked.Exchange(ref _busy, 0); }
+        finally
+        {
+            Interlocked.Exchange(ref _busy, 0);
+            RefreshCompletedFolders();
+        }
     }
 
     /// <summary>Recheck current pin and disk state before each request; events may arrive meanwhile.</summary>
@@ -293,6 +303,24 @@ public sealed class PinHydrationService : IDisposable
         ProgressChanged?.Invoke();
     }
 
+    /// <summary>Clear a completed folder's stale pending badge after every requested download finishes.</summary>
+    private void RefreshCompletedFolders()
+    {
+        if (!_pending.IsEmpty || Volatile.Read(ref _scanning) != 0 || _stop.IsCancellationRequested)
+            return;
+
+        string[] folders;
+        lock (_progressLock)
+        {
+            if (!_pending.IsEmpty) return;
+            folders = _foldersToRefresh.OrderByDescending(path => path.Length).ToArray();
+            _foldersToRefresh.Clear();
+        }
+
+        foreach (string folder in folders)
+            CloudFolderState.RefreshExisting(folder);
+    }
+
     /// <summary>Cloud folder placeholders are reparse points; only links must be skipped.</summary>
     private static bool CanTraverseFolder(string path) =>
         new DirectoryInfo(path).LinkTarget == null;
@@ -329,6 +357,10 @@ public sealed class PinHydrationService : IDisposable
     /// <summary>Include descendants when Explorer pins a folder rather than individual photos.</summary>
     private void QueuePinnedFolder(string folder)
     {
+        if (!folder.Equals(_root, StringComparison.OrdinalIgnoreCase))
+        {
+            lock (_progressLock) _foldersToRefresh.Add(folder);
+        }
         try
         {
             var dirs = new Stack<string>();
