@@ -36,7 +36,7 @@ foreach ($package in $packages) {
 
 $bundlePath = Join-Path $OutputDirectory "$AppName-$Version.msixbundle"
 if (Test-Path $bundlePath) { Remove-Item $bundlePath -Force }
-& $makeappx bundle /d $bundleInput /p $bundlePath /o
+& $makeappx bundle /d $bundleInput /p $bundlePath /bv "$Version.0" /o
 if ($LASTEXITCODE -ne 0) { throw "MakeAppx bundle failed (exit $LASTEXITCODE)" }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -47,6 +47,10 @@ try {
     $reader = [IO.StreamReader]::new($manifest.Open())
     try { [xml]$xml = $reader.ReadToEnd() }
     finally { $reader.Dispose() }
+    $bundleVersion = $xml.SelectSingleNode("//*[local-name()='Bundle']/*[local-name()='Identity']").Version
+    if ($bundleVersion -ne "$Version.0") {
+        throw "Unexpected MSIX bundle version: $bundleVersion"
+    }
     $architectures = @($xml.SelectNodes("//*[local-name()='Package']") | ForEach-Object { $_.Architecture })
     foreach ($architecture in @('x64', 'arm64')) {
         if ($architectures -notcontains $architecture) {

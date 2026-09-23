@@ -59,8 +59,10 @@ different package family and break in-place updates for existing Store installs.
 
 The workflow pins [Microsoft Store CLI v0.4.3](https://github.com/microsoft/msstore-cli/releases/tag/v0.4.3),
 builds unsigned x64 and ARM64 packages on one runner, combines them into a real
-architecture-aware `.msixbundle`, and wraps that in a versioned `.msixupload`,
+architecture-aware `.msixbundle` stamped with the app version, and wraps that in a versioned `.msixupload`,
 and submits directly to Partner Center on `v*` tags. It uploads no public binary artifacts.
+MakeAppx must receive `/bv` so the bundle does not get a date-based version that
+could outrank the next app release.
 Manual dispatch defaults `no_commit` to true for draft review; disable it to commit the submission.
 Certification and the submission's publishing settings determine when it becomes available.
 
