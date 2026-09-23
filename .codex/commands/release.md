@@ -13,8 +13,9 @@ Actions artifact is uploaded, because this is a paid app in a public repo and an
 could not register the sync root or the thumbnail handler regardless. The CI build is the
 packaging check, not a source of downloads, so do not add assets back.
 
-Shipping the release is a separate, manual step: the Microsoft Store is the install route, and
-its package is built locally with `.\ImmichDriveMSIX\build-msix.ps1 -NoSign` (real Partner Center
-identity, unsigned, the Store re-signs at ingestion) and uploaded to Partner Center.
+The separate `store-publish.yml` submits unsigned Store packages on the same tag using
+`Tier1012` for the US $0.99 base price. Verify both workflow results and inspect the
+ingested regional prices. Manual Store runs default to draft review. Keep the local
+`build-msix.ps1 -NoSign` path available for manual uploads. See `.codex/docs/installer.md`.
 
 MSIX blocks same-version re-installs, so never reuse a version.

@@ -55,8 +55,28 @@ different package family and break in-place updates for existing Store installs.
 
 ## Distribution (what gets published, and what deliberately does not)
 
-The Store package is produced **locally**: `.\ImmichDriveMSIX\build-msix.ps1 -NoSign`, uploaded to
-Partner Center by hand. Nothing builds it in CI, and nothing should.
+`store-publish.yml` submits to product `9MWC6165N7DH`.
+
+The workflow pins [Microsoft Store CLI v0.4.3](https://github.com/microsoft/msstore-cli/releases/tag/v0.4.3),
+builds unsigned x64 and ARM64 packages on one runner, bundles them into a `.msixupload`,
+and submits directly to Partner Center on `v*` tags. It uploads no public binary artifacts.
+Manual dispatch defaults `no_commit` to true for draft review; disable it to commit the submission.
+Certification and the submission's publishing settings determine when it becomes available.
+
+The published base price is US $0.99. The API may report it as `PriceId: "Base"`, which
+the CLI cannot round-trip. This workflow explicitly supplies `Tier1012`, the US $0.99
+tier identified by a [Microsoft maintainer](https://github.com/microsoft/msstore-cli/pull/175#issuecomment-5791491206).
+Tier pricing can change converted prices in other markets; review the ingested submission
+in Partner Center. The workflow checks for a pending submission before invoking the CLI,
+because the CLI would otherwise delete an existing draft.
+
+The repository secrets are `AZURE_AD_TENANT_ID`, `AZURE_AD_APPLICATION_CLIENT_ID`,
+`AZURE_AD_APPLICATION_SECRET`, and `SELLER_ID`. All four were present when checked on
+September 22, 2026; expiry and the Entra application's Partner Center Manager role still
+need a live submission check. Inspect the first tier-based submission's packages and pricing.
+
+For manual fallback, run `build-msix.ps1 -Platform x64 -NoSign` and
+`-Platform ARM64 -NoSign`, then upload both individual `.msix` files in Partner Center.
 
 `.github/workflows/build-msix.yml` publishes **no binary at all**: no release asset, no Actions
 artifact. Two reasons, and both have to stop being true before that changes:

@@ -9,10 +9,8 @@ name: Build and Package
 # Microsoft Store (https://apps.microsoft.com/detail/9MWC6165N7DH); anyone who wants to run it
 # from source builds it themselves, which the repo has everything for.
 #
-# The Store package is produced locally, not here: .\ImmichDriveMSIX\build-msix.ps1 -NoSign
-# keeps the real Partner Center identity and leaves it unsigned for the Store to re-sign at
-# ingestion. So this workflow exists for two things only: the build check below, and a
-# notes-only GitHub release on a tag.
+# Store submission runs separately in store-publish.yml on release tags. This workflow
+# retains the signed packaging checks and notes-only GitHub release.
 
 on:
   workflow_dispatch:

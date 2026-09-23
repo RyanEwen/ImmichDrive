@@ -1,0 +1,136 @@
+name: Publish to Microsoft Store
+
+# Tags submit both architectures directly to Partner Center at the verified US $0.99 tier.
+# Manual runs default to draft-only review. Never expose paid MSIX files as artifacts.
+# The published submission reports Base; CLI 0.4.3 needs Tier1012 for this product.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      no_commit:
+        description: 'Stage a draft for review in Partner Center without submitting'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-package
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-2025
+
+    steps:
+      - name: Check publishing credentials
+        shell: pwsh
+        env:
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: |
+          foreach ($name in @('AZURE_AD_TENANT_ID', 'SELLER_ID', 'AZURE_AD_APPLICATION_CLIENT_ID', 'AZURE_AD_APPLICATION_SECRET')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing GitHub Actions secret: $name"
+            }
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Generate images
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/ImmichDriveMSIX/generate-msix-images.ps1"
+          if ($LASTEXITCODE -ne 0) { throw "Image generation failed (exit $LASTEXITCODE)" }
+
+      - name: Build MSIX packages (x64 + ARM64, unsigned for Store)
+        shell: pwsh
+        run: |
+          foreach ($plat in @('x64', 'ARM64')) {
+            Write-Host "::group::Build $plat MSIX"
+            & "$env:GITHUB_WORKSPACE\ImmichDriveMSIX\build-msix.ps1" -Platform $plat -NoSign
+            if ($LASTEXITCODE -ne 0) { throw "build-msix.ps1 failed for $plat (exit $LASTEXITCODE)" }
+            Write-Host "::endgroup::"
+          }
+
+      # Keep paid Store packages on this runner; never upload public Actions artifacts.
+      - name: Bundle Store packages
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content "$env:GITHUB_WORKSPACE/Directory.Build.props"
+          $version = $props.SelectSingleNode("//Version").InnerText
+          $out = "$env:GITHUB_WORKSPACE/ImmichDriveMSIX/bin/msix-output"
+          $packages = @('x64', 'ARM64') | ForEach-Object {
+            $path = Join-Path $out "ImmichDrive-$version-$_.msix"
+            if (!(Test-Path -LiteralPath $path)) { throw "Missing Store package: $path" }
+            $path
+          }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $upload = [IO.Compression.ZipFile]::Open("$out/ImmichDrive.msixupload", [IO.Compression.ZipArchiveMode]::Create)
+          try {
+            foreach ($path in $packages) {
+              [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($upload, $path, [IO.Path]::GetFileName($path)) | Out-Null
+            }
+          } finally {
+            $upload.Dispose()
+          }
+
+      - name: Setup Microsoft Store CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+        with:
+          version: 'v0.4.3'
+
+      - name: Configure Store credentials
+        shell: pwsh
+        env:
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: |
+          msstore reconfigure --tenantId "$env:AZURE_AD_TENANT_ID" --sellerId "$env:SELLER_ID" --clientId "$env:AZURE_AD_APPLICATION_CLIENT_ID" --clientSecret "$env:AZURE_AD_APPLICATION_SECRET"
+          if ($LASTEXITCODE -ne 0) { throw "Store authentication configuration failed (exit $LASTEXITCODE)" }
+          # The CLI deletes pending submissions before publishing. Preserve any existing draft.
+          $token = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$env:AZURE_AD_TENANT_ID/oauth2/token" -Body @{
+            grant_type = 'client_credentials'
+            client_id = $env:AZURE_AD_APPLICATION_CLIENT_ID
+            client_secret = $env:AZURE_AD_APPLICATION_SECRET
+            resource = 'https://manage.devcenter.microsoft.com'
+          }
+          $app = Invoke-RestMethod -Uri 'https://manage.devcenter.microsoft.com/v1.0/my/applications/9MWC6165N7DH' -Headers @{ Authorization = "Bearer $($token.access_token)" }
+          if ($null -ne $app.pendingApplicationSubmission) {
+            throw 'An existing Store submission is pending. Review it in Partner Center before starting another run.'
+          }
+
+      - name: Publish to Microsoft Store
+        shell: pwsh
+        env:
+          NO_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.no_commit }}
+        run: |
+          $publishArgs = @('publish', "$env:GITHUB_WORKSPACE/ImmichDriveMSIX/bin/msix-output/ImmichDrive.msixupload", '-id', '9MWC6165N7DH')
+          if ($env:NO_COMMIT -eq 'true') { $publishArgs += '--noCommit' }
+          # Tier1012 maps to US $0.99; regional prices can change when the tier is applied.
+          $publishArgs += @('--priceId', 'Tier1012')
+          & msstore @publishArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "Store publishing failed (exit $LASTEXITCODE). Review the submission in Partner Center."
+          }
+          if ($env:NO_COMMIT -eq 'true') {
+            'Store draft uploaded. Review pricing and packages in Partner Center before committing.' >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            'Store submission committed. Publication depends on Microsoft certification and the submission publishing settings.' >> $env:GITHUB_STEP_SUMMARY
+          }

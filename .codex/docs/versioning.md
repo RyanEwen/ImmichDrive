@@ -1,7 +1,7 @@
 # Versioning
 
 - `<Version>` in `Directory.Build.props` is the **single source of truth** (currently
-  `0.1.45`). App assembly version, the MSIX manifest (`VERSION_PLACEHOLDER`, stamped by
+  `0.1.46`). App assembly version, the MSIX manifest (`VERSION_PLACEHOLDER`, stamped by
   `build-msix.ps1`), and the CI release tag all derive from it.
 - The MSIX manifest needs a 4-part version, so `build-msix.ps1` reforms the 3-part `<Version>`
   as `X.Y.Z.0` (appends `.0`). The Store requires the 4th part (revision) to be `0`, so that
@@ -14,8 +14,9 @@
 - **That release carries notes and the tag only, never a package.** CI attaches no MSIX and
   uploads no Actions artifact, because this is a paid app in a public repo and because an
   unpackaged build cannot register the sync root or the thumbnail handler anyway. The MSIX is
-  still built on every run as the packaging check, and shipping is a separate manual step:
-  `build-msix.ps1 -NoSign` locally, then upload to Partner Center. See `installer.md`.
+  still built on every run as the packaging check. The separate `store-publish.yml` submits
+  on release tags with the verified US $0.99 `Tier1012`; manual runs default to draft review.
+  See `installer.md`.
 
 ## In-app update check
 

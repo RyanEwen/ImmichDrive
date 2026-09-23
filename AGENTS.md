@@ -120,12 +120,13 @@ into the thumbnail extension, so they must stay WinUI-free and trim-safe (no NLo
 ## Distributing (no binaries leave this repo)
 
 - **The Microsoft Store is the install route** (`9MWC6165N7DH`), and the Store package is built
-  **locally** with `build-msix.ps1 -NoSign`, then uploaded to Partner Center by hand.
+  by `store-publish.yml` on release tags and submitted directly to Partner Center with
+  `Tier1012` for the US $0.99 base price. Manual dispatch defaults to draft review.
 - **A GitHub release carries notes and the tag only**, and CI uploads no Actions artifact. This
   is a paid app in a public repo, where an Actions artifact needs only read access to download.
   There is also nothing usable to publish: the sync root and the thumbnail COM server register
   only from `Package.appxmanifest`, so an unpackaged build is not the product. Do not add a
-  portable build, a release asset, or a Store-package CI job to "fix" this.
+  portable build or public binary artifact. Store submission runs entirely on one runner.
 - **CI does still build the MSIX on every run, and must keep doing so** (both platforms). It is
   the only check that manifest stamping, `makepri`, `makeappx` and signing survive a change;
   the alternative is finding out during a Store submission. See `.github/workflows/build-msix.yml`.

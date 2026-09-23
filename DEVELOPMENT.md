@@ -63,10 +63,12 @@ powershell -File ImmichDriveMSIX/build-msix.ps1 -NoSign     # Store build (unsig
   even though it publishes nothing. That build is the only automated check that manifest
   stamping, `makepri`, `makeappx` and signing still work; without it, a break in packaging would
   first show up during a Store submission.
-- **The Store package is built locally and uploaded by hand**, with
-  `.\ImmichDriveMSIX\build-msix.ps1 -NoSign`. `-NoSign` is what makes it a Store package: it keeps
-  the real Partner Center identity in the manifest and leaves the package unsigned, since the
-  Store re-signs at ingestion.
+- **Store submission runs on release tags** through `.github/workflows/store-publish.yml`,
+  using CLI v0.4.3 and the configured Entra secrets. Both unsigned architectures stay on one
+  runner and go directly to Partner Center. Manual runs default to draft review. The
+  workflow uses `Tier1012` for the US $0.99 base price and can change regional prices. See
+  [the packaging guide](.codex/docs/installer.md). The local `build-msix.ps1 -NoSign` path
+  remains available for manual uploads.
 
 ## Architecture & internals
 
