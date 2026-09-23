@@ -75,8 +75,10 @@ The repository secrets are `AZURE_AD_TENANT_ID`, `AZURE_AD_APPLICATION_CLIENT_ID
 `AZURE_AD_APPLICATION_SECRET`, and `SELLER_ID`. All four were present when checked on
 September 22, 2026. The first tier-based submission accepted authentication and Tier1012,
 but a ZIP of loose MSIX packages ingested as x64 only. Submission 11 was withdrawn to
-draft before publication. Repair it with `repair_draft` and `no_commit` enabled, verify
-both architectures and pricing in Partner Center, then submit it for certification.
+draft before publication. The API reports it as `Canceled`, so it cannot be edited.
+Run `replace_canceled_draft` with its exact ID and `no_commit` disabled to remove only
+that canceled submission and publish a corrected bundle. Verify both architectures
+and pricing in Partner Center after ingestion.
 Future tag runs use the MSIX bundle format.
 
 For manual fallback, run `build-msix.ps1 -Platform x64 -NoSign` and

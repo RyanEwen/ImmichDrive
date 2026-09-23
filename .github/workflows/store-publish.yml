@@ -18,6 +18,10 @@ on:
         description: 'Existing draft ID to repair with both architectures; requires no_commit'
         type: string
         default: ''
+      replace_canceled_draft:
+        description: 'Exact canceled tier submission ID to replace with a corrected release'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -84,6 +88,21 @@ jobs:
         uses: microsoft/microsoft-store-apppublisher@v1.1
         with:
           version: 'v0.4.3'
+
+      - name: Remove selected canceled Store submission
+        if: inputs.replace_canceled_draft != ''
+        shell: pwsh
+        env:
+          SUBMISSION_ID: ${{ inputs.replace_canceled_draft }}
+          REPAIR_DRAFT: ${{ inputs.repair_draft }}
+          NO_COMMIT: ${{ inputs.no_commit }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: |
+          if ($env:REPAIR_DRAFT) { throw 'Choose repair_draft or replace_canceled_draft, not both.' }
+          if ($env:NO_COMMIT -ne 'false') { throw 'Replacing a canceled release requires a committed submission.' }
+          & ./.github/scripts/replace-canceled-store-draft.ps1 -AppId 9MWC6165N7DH -SubmissionId $env:SUBMISSION_ID -PriceId Tier1012
 
       - name: Configure Store credentials
         if: inputs.repair_draft == ''
