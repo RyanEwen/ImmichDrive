@@ -55,7 +55,7 @@ jobs:
         shell: pwsh
         run: |
           & "$env:GITHUB_WORKSPACE/ImmichDriveMSIX/generate-msix-images.ps1"
-          if ($LASTEXITCODE -ne 0) { throw "Image generation failed (exit $LASTEXITCODE)" }
+          if (-not $?) { throw 'Image generation failed' }
 
       - name: Build MSIX packages (x64 + ARM64, unsigned for Store)
         shell: pwsh
