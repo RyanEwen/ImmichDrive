@@ -82,6 +82,11 @@ Run `replace_canceled_draft` with its exact ID and `no_commit` disabled to remov
 that canceled submission and publish a corrected bundle. Verify both architectures
 and pricing in Partner Center after ingestion.
 Future tag runs use the MSIX bundle format.
+The corrected [Store run](https://github.com/RyanEwen/ImmichDrive/actions/runs/35898180603)
+committed Submission 11 (`1152921505701961960`) with a 0.1.46.0 bundle covering
+x64 and ARM64. Partner Center shows US $0.99, with 36 of 240 regional prices changed
+from the published Base schedule. It is in certification and will publish automatically
+after passing.
 
 For manual fallback, run `build-msix.ps1 -Platform x64 -NoSign` and
 `-Platform ARM64 -NoSign`, then upload both individual `.msix` files in Partner Center.
