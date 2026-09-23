@@ -14,6 +14,10 @@ on:
         description: 'Stage a draft for review in Partner Center without submitting'
         type: boolean
         default: true
+      repair_draft:
+        description: 'Existing draft ID to repair with both architectures; requires no_commit'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -74,20 +78,7 @@ jobs:
           [xml]$props = Get-Content "$env:GITHUB_WORKSPACE/Directory.Build.props"
           $version = $props.SelectSingleNode("//Version").InnerText
           $out = "$env:GITHUB_WORKSPACE/ImmichDriveMSIX/bin/msix-output"
-          $packages = @('x64', 'ARM64') | ForEach-Object {
-            $path = Join-Path $out "ImmichDrive-$version-$_.msix"
-            if (!(Test-Path -LiteralPath $path)) { throw "Missing Store package: $path" }
-            $path
-          }
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $upload = [IO.Compression.ZipFile]::Open("$out/ImmichDrive.msixupload", [IO.Compression.ZipArchiveMode]::Create)
-          try {
-            foreach ($path in $packages) {
-              [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($upload, $path, [IO.Path]::GetFileName($path)) | Out-Null
-            }
-          } finally {
-            $upload.Dispose()
-          }
+          & "$env:GITHUB_WORKSPACE/.github/scripts/build-store-upload.ps1" -AppName ImmichDrive -OutputDirectory $out -Version $version
 
       - name: Setup Microsoft Store CLI
         uses: microsoft/microsoft-store-apppublisher@v1.1
@@ -95,6 +86,7 @@ jobs:
           version: 'v0.4.3'
 
       - name: Configure Store credentials
+        if: inputs.repair_draft == ''
         shell: pwsh
         env:
           AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
@@ -117,11 +109,14 @@ jobs:
           }
 
       - name: Publish to Microsoft Store
+        if: inputs.repair_draft == ''
         shell: pwsh
         env:
           NO_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.no_commit }}
         run: |
-          $publishArgs = @('publish', "$env:GITHUB_WORKSPACE/ImmichDriveMSIX/bin/msix-output/ImmichDrive.msixupload", '-id', '9MWC6165N7DH')
+          [xml]$props = Get-Content "$env:GITHUB_WORKSPACE/Directory.Build.props"
+          $version = $props.SelectSingleNode("//Version").InnerText
+          $publishArgs = @('publish', "$env:GITHUB_WORKSPACE/ImmichDriveMSIX/bin/msix-output/ImmichDrive-$version.msixupload", '-id', '9MWC6165N7DH')
           if ($env:NO_COMMIT -eq 'true') { $publishArgs += '--noCommit' }
           # Tier1012 maps to US $0.99; regional prices can change when the tier is applied.
           $publishArgs += @('--priceId', 'Tier1012')
@@ -134,3 +129,18 @@ jobs:
           } else {
             'Store submission committed. Publication depends on Microsoft certification and the submission publishing settings.' >> $env:GITHUB_STEP_SUMMARY
           }
+
+      - name: Repair existing Store draft
+        if: inputs.repair_draft != ''
+        shell: pwsh
+        env:
+          SUBMISSION_ID: ${{ inputs.repair_draft }}
+          NO_COMMIT: ${{ inputs.no_commit }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: |
+          if ($env:NO_COMMIT -ne 'true') { throw 'Repairing a draft requires no_commit.' }
+          [xml]$props = Get-Content "$env:GITHUB_WORKSPACE/Directory.Build.props"
+          $version = $props.SelectSingleNode("//Version").InnerText
+          & ./.github/scripts/repair-store-draft.ps1 -AppId 9MWC6165N7DH -SubmissionId $env:SUBMISSION_ID -PriceId Tier1012 -UploadPath "$env:GITHUB_WORKSPACE/ImmichDriveMSIX/bin/msix-output/ImmichDrive-$version.msixupload"

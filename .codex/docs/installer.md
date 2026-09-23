@@ -58,7 +58,8 @@ different package family and break in-place updates for existing Store installs.
 `store-publish.yml` submits to product `9MWC6165N7DH`.
 
 The workflow pins [Microsoft Store CLI v0.4.3](https://github.com/microsoft/msstore-cli/releases/tag/v0.4.3),
-builds unsigned x64 and ARM64 packages on one runner, bundles them into a `.msixupload`,
+builds unsigned x64 and ARM64 packages on one runner, combines them into a real
+architecture-aware `.msixbundle`, and wraps that in a versioned `.msixupload`,
 and submits directly to Partner Center on `v*` tags. It uploads no public binary artifacts.
 Manual dispatch defaults `no_commit` to true for draft review; disable it to commit the submission.
 Certification and the submission's publishing settings determine when it becomes available.
@@ -72,8 +73,11 @@ because the CLI would otherwise delete an existing draft.
 
 The repository secrets are `AZURE_AD_TENANT_ID`, `AZURE_AD_APPLICATION_CLIENT_ID`,
 `AZURE_AD_APPLICATION_SECRET`, and `SELLER_ID`. All four were present when checked on
-September 22, 2026; expiry and the Entra application's Partner Center Manager role still
-need a live submission check. Inspect the first tier-based submission's packages and pricing.
+September 22, 2026. The first tier-based submission accepted authentication and Tier1012,
+but a ZIP of loose MSIX packages ingested as x64 only. Submission 11 was withdrawn to
+draft before publication. Repair it with `repair_draft` and `no_commit` enabled, verify
+both architectures and pricing in Partner Center, then submit it for certification.
+Future tag runs use the MSIX bundle format.
 
 For manual fallback, run `build-msix.ps1 -Platform x64 -NoSign` and
 `-Platform ARM64 -NoSign`, then upload both individual `.msix` files in Partner Center.
