@@ -69,6 +69,9 @@ Each release includes `release-notes/<version>.txt`. The workflow stages the pac
 updates the English Store listings' What's new text with that file, verifies it was saved,
 and only then commits the submission. Other listing fields and publishing settings are preserved.
 GitHub release notes use the same blurb and never attach binaries.
+If upload succeeds but release-note verification or the final commit fails, use manual
+`resume_draft` with that exact submission ID and `no_commit=false`. This validates the
+expected upload and notes, then commits without rebuilding or replacing the draft.
 
 The published base price is US $0.99. The API may report it as `PriceId: "Base"`, which
 the CLI cannot round-trip. This workflow explicitly supplies `Tier1012`, the US $0.99

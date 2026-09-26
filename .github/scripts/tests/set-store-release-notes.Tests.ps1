@@ -18,7 +18,11 @@ function Reset-Fixture {
 function global:Invoke-RestMethod {
     param($Method, $Uri, $Headers, $Body, $ContentType)
     if ($Uri -like '*oauth2/token') { return @{access_token='test-only'} }
-    if ($Uri -match '/commit$') { $global:commits++; return @{status='CommitStarted'} }
+    if ($Uri -match '/commit$') {
+        if ($ContentType -ne 'application/json') { throw 'Only JSON content is accepted' }
+        $global:commits++
+        return @{status='CommitStarted'}
+    }
     if ($Uri -match '/status$') { return @{status=$global:storeStatus} }
     if ($Uri -match '/submissions/123$') {
         if ($Method -eq 'Put') {
@@ -46,6 +50,12 @@ Check ($global:fixture.pricing.marketSpecificPricings.CA -eq 'keep' -and $global
 Reset-Fixture
 Run-Notes -Commit
 Check ($global:commits -eq 1) 'verified notes submitted once'
+Reset-Fixture
+try {
+    & $scriptPath -AppId 9MWC6165N7DH -ExpectedSubmissionId 999 -UploadFileName ImmichDrive-0.1.47.msixupload -NotesPath $notesPath -Commit
+    throw 'Expected rejection'
+} catch { Check ($_.Exception.Message -like '*not the current pending submission*') 'resuming rejects a different pending draft' }
+Check ($global:puts -eq 0 -and $global:commits -eq 0) 'mismatched resume leaves draft untouched'
 Reset-Fixture
 $global:fixture.applicationPackages[0].fileName = 'unrelated.msixupload'
 try { Run-Notes -Commit; throw 'Expected rejection' } catch { Check ($_.Exception.Message -like '*expected release upload*') 'unrelated draft rejected' }

@@ -9,6 +9,7 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[A-Z0-9]+$')][string]$AppId,
     [Parameter(Mandatory)][string]$UploadFileName,
     [Parameter(Mandatory)][string]$NotesPath,
+    [ValidatePattern('^[0-9]+$')][string]$ExpectedSubmissionId,
     [switch]$Commit
 )
 
@@ -29,6 +30,9 @@ $headers = @{ Authorization = "Bearer $($token.access_token)" }
 $app = Invoke-RestMethod -Uri $api -Headers $headers
 $submissionId = [string]$app.pendingApplicationSubmission.id
 if ($submissionId -notmatch '^[0-9]+$') { throw 'No pending Store submission was found.' }
+if ($ExpectedSubmissionId -and $submissionId -ne $ExpectedSubmissionId) {
+    throw 'The selected draft is not the current pending submission.'
+}
 
 $uri = "$api/submissions/$submissionId"
 $draft = Invoke-RestMethod -Uri $uri -Headers $headers
@@ -57,7 +61,7 @@ Write-Output "Submission ${submissionId}: verified What's new: $notes"
 Write-Output "Price tier: $($verified.pricing.priceId); publishing mode: $($verified.targetPublishMode)"
 
 if ($Commit) {
-    Invoke-RestMethod -Method Post -Uri "$uri/commit" -Headers $headers | Out-Null
+    Invoke-RestMethod -Method Post -Uri "$uri/commit" -Headers $headers -ContentType 'application/json' | Out-Null
     # Wait for ingestion to accept the submission, not for the full certification process.
     for ($attempt = 0; $attempt -lt 60; $attempt++) {
         $status = Invoke-RestMethod -Uri "$uri/status" -Headers $headers

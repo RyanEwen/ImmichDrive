@@ -22,6 +22,10 @@ on:
         description: 'Exact canceled tier submission ID to replace with a corrected release'
         type: string
         default: ''
+      resume_draft:
+        description: 'Exact uploaded draft ID to submit after a release-note or commit failure'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -32,6 +36,7 @@ concurrency:
 
 jobs:
   publish:
+    if: inputs.resume_draft == ''
     runs-on: windows-2025
 
     steps:
@@ -177,3 +182,27 @@ jobs:
           [xml]$props = Get-Content "$env:GITHUB_WORKSPACE/Directory.Build.props"
           $version = $props.SelectSingleNode("//Version").InnerText
           & ./.github/scripts/repair-store-draft.ps1 -AppId 9MWC6165N7DH -SubmissionId $env:SUBMISSION_ID -PriceId Tier1012 -UploadPath "$env:GITHUB_WORKSPACE/ImmichDriveMSIX/bin/msix-output/ImmichDrive-$version.msixupload"
+
+  resume:
+    if: inputs.resume_draft != ''
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify and submit the selected uploaded draft
+        shell: pwsh
+        env:
+          SUBMISSION_ID: ${{ inputs.resume_draft }}
+          NO_COMMIT: ${{ inputs.no_commit }}
+          REPAIR_DRAFT: ${{ inputs.repair_draft }}
+          REPLACE_DRAFT: ${{ inputs.replace_canceled_draft }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: |
+          if ($env:NO_COMMIT -ne 'false' -or $env:REPAIR_DRAFT -or $env:REPLACE_DRAFT) {
+            throw 'Resuming requires no_commit=false without other repair options.'
+          }
+          [xml]$props = Get-Content Directory.Build.props
+          $version = $props.SelectSingleNode('//Version').InnerText
+          & ./.github/scripts/set-store-release-notes.ps1 -AppId 9MWC6165N7DH -ExpectedSubmissionId $env:SUBMISSION_ID -UploadFileName "ImmichDrive-$version.msixupload" -NotesPath "release-notes/$version.txt" -Commit
