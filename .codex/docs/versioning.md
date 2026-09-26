@@ -1,7 +1,7 @@
 # Versioning
 
 - `<Version>` in `Directory.Build.props` is the **single source of truth** (currently
-  `0.1.46`). App assembly version, the MSIX manifest (`VERSION_PLACEHOLDER`, stamped by
+  `0.1.47`). App assembly version, the MSIX manifest (`VERSION_PLACEHOLDER`, stamped by
   `build-msix.ps1`), and the CI release tag all derive from it.
 - The MSIX manifest needs a 4-part version, so `build-msix.ps1` reforms the 3-part `<Version>`
   as `X.Y.Z.0` (appends `.0`). The Store requires the 4th part (revision) to be `0`, so that
@@ -11,6 +11,8 @@
 - Release: bump → follow `.codex/commands/update-docs.md` → commit `Bump version to vX.Y.Z` (no Co-Authored-By trailer)
   → `git tag -a vX.Y.Z` → push. The `build-msix` Action builds x64 + ARM64 and creates a
   GitHub release from the tag.
+- Add user-facing notes in `release-notes/X.Y.Z.txt` before tagging. The Store workflow
+  verifies the English listings' What's new text before committing; GitHub uses the same blurb.
 - **That release carries notes and the tag only, never a package.** CI attaches no MSIX and
   uploads no Actions artifact, because this is a paid app in a public repo and because an
   unpackaged build cannot register the sync root or the thumbnail handler anyway. The MSIX is

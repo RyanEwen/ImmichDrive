@@ -107,6 +107,9 @@ The only writable spot is the `Upload` folder (inheritance broken, full control 
 `UploadService` watches it; a file dropped there is POSTed to Immich (`/api/assets`) and the
 local copy deleted. Sync is therefore one-way (Immich → PC) for everything the user sees,
 with `Upload` as the single PC → Immich path.
+The upload service also updates its Explorer badge: no remaining files means in sync;
+files still copying, uploading, or left after a failure keep the folder pending. It checks
+disk contents rather than the upload queue so a failed attempt cannot appear complete.
 
 ## 5. Thumbnails without hydration
 

@@ -65,6 +65,10 @@ MakeAppx must receive `/bv` so the bundle does not get a date-based version that
 could outrank the next app release.
 Manual dispatch defaults `no_commit` to true for draft review; disable it to commit the submission.
 Certification and the submission's publishing settings determine when it becomes available.
+Each release includes `release-notes/<version>.txt`. The workflow stages the package upload,
+updates the English Store listings' What's new text with that file, verifies it was saved,
+and only then commits the submission. Other listing fields and publishing settings are preserved.
+GitHub release notes use the same blurb and never attach binaries.
 
 The published base price is US $0.99. The API may report it as `PriceId: "Base"`, which
 the CLI cannot round-trip. This workflow explicitly supplies `Tier1012`, the US $0.99

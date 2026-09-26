@@ -98,28 +98,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Generate release notes from commits
+      - name: Read release notes
         id: notes
         run: |
           CURRENT_TAG="${GITHUB_REF#refs/tags/}"
-          PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -E '^v' | sed -n '2p')
-          if [ -n "$PREVIOUS_TAG" ]; then RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"; else RANGE="${CURRENT_TAG}"; fi
-          BODY=$(git log "$RANGE" --pretty=format:"- %s" --no-merges \
-            | grep -vi "^- Bump version" | grep -vi "^- Merge branch")
-          if [ -z "$BODY" ]; then BODY="- Maintenance release (no notable changes)"; fi
+          BODY=$(cat "release-notes/${CURRENT_TAG#v}.txt")
+          if [ -z "$BODY" ]; then echo "Missing release notes"; exit 1; fi
           {
             echo "RELEASE_BODY<<RELEASE_EOF"
-            echo "## What's Changed"
+            echo "## What's new"
             echo ""
             echo "$BODY"
             echo ""
             echo "## Install"
             echo ""
             echo "ImmichDrive installs from the [Microsoft Store](https://apps.microsoft.com/detail/9MWC6165N7DH), where it is listed as Drive for Immich."
-            echo "Releases here carry notes only. The app registers its Cloud Files sync root and its"
-            echo "thumbnail handler from the package manifest, so it needs package identity to work and"
-            echo "there is no standalone build worth downloading. Building from source works: see"
-            echo "DEVELOPMENT.md."
+            echo ""
+            echo "*AI disclosure: this release and the related code were written with the assistance of AI.*"
             echo "RELEASE_EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -129,4 +124,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.notes.outputs.RELEASE_BODY }}
-          generate_release_notes: true
+          generate_release_notes: false

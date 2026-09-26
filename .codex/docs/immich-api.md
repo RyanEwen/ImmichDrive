@@ -93,7 +93,8 @@ enough. If `originalFileName` isn't in the bucket payload, fall back to `GET /ap
 
 ## Notes
 
-- Times are UTC ISO‑8601. Convert `fileCreatedAt` to local for the `Year\Month` foldering and
-  the `yyyy-MM-dd_HHmmss_` filename prefix.
+- Asset times are UTC ISO-8601. Month folders use the timeline bucket's own year/month
+  without a local-time conversion. Files keep their original names; capture times are
+  stored on the placeholders for Explorer sorting.
 - Videos are included; the layout treats them the same (placeholder + thumbnail + hydrate).
 - Be tolerant of extra/missing JSON fields — Immich evolves quickly. Deserialize loosely.

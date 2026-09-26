@@ -20,6 +20,9 @@ public sealed class UploadService : IDisposable
     private FileSystemWatcher? _watcher;
     private Timer? _timer;
     private int _busy;
+    private int _folderChangeVersion;
+    private int _reportedFolderVersion = -1;
+    private bool? _reportedInSync;
 
     public UploadService(ImmichClient client, string uploadDir)
     {
@@ -31,18 +34,21 @@ public sealed class UploadService : IDisposable
     {
         Directory.CreateDirectory(_uploadDir);
 
-        // Pick up anything already sitting in Upload (e.g. dropped while we weren't running).
-        foreach (var f in SafeEnumerate()) _pending[f] = 0;
-
         _watcher = new FileSystemWatcher(_uploadDir)
         {
             IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.LastWrite,
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName |
+                NotifyFilters.Size | NotifyFilters.LastWrite,
         };
         _watcher.Created += OnChanged;
         _watcher.Changed += OnChanged;
+        _watcher.Deleted += OnChanged;
         _watcher.Renamed += (s, e) => Enqueue(e.FullPath);
         _watcher.EnableRaisingEvents = true;
+
+        // Watch first so a drop during the initial scan cannot be missed.
+        foreach (var f in SafeEnumerate()) _pending[f] = 0;
+        RefreshFolderSyncState();
 
         _timer = new Timer(_ => _ = ProcessPendingAsync(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
     }
@@ -51,6 +57,7 @@ public sealed class UploadService : IDisposable
 
     private void Enqueue(string path)
     {
+        Interlocked.Increment(ref _folderChangeVersion);
         if (File.Exists(path)) _pending[path] = 0;
     }
 
@@ -59,6 +66,8 @@ public sealed class UploadService : IDisposable
         if (Interlocked.Exchange(ref _busy, 1) == 1) return;
         try
         {
+            // Report pending before a potentially slow upload starts.
+            RefreshFolderSyncState();
             foreach (var path in _pending.Keys.ToList())
             {
                 if (!File.Exists(path)) { _pending.TryRemove(path, out _); continue; }
@@ -79,7 +88,42 @@ public sealed class UploadService : IDisposable
             CleanEmptySubfolders();
         }
         catch (Exception ex) { Logger.Warn(ex, "Upload processing failed"); }
-        finally { Interlocked.Exchange(ref _busy, 0); }
+        finally
+        {
+            // Failed uploads leave files behind even though they are no longer in _pending.
+            RefreshFolderSyncState();
+            Interlocked.Exchange(ref _busy, 0);
+        }
+    }
+
+    /// <summary>
+    /// Reports completion from the actual folder contents, not the processing queue. A failed
+    /// upload, unfinished copy, or failed local deletion must keep the folder pending. Successful
+    /// reports are cached until contents change; failed state updates are retried on the next tick.
+    /// </summary>
+    private void RefreshFolderSyncState()
+    {
+        int version = Volatile.Read(ref _folderChangeVersion);
+        bool inSync;
+        try
+        {
+            inSync = !Directory.EnumerateFiles(_uploadDir, "*", SearchOption.AllDirectories).Any();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger.Warn(ex, "Could not inspect Upload folder sync state");
+            inSync = false;
+        }
+
+        // A concurrent drop invalidates an empty snapshot. The next tick will inspect it again.
+        if (version != Volatile.Read(ref _folderChangeVersion)) inSync = false;
+        if (_reportedInSync == inSync && _reportedFolderVersion == version) return;
+
+        if (CloudFolderState.SetInSync(_uploadDir, inSync))
+        {
+            _reportedInSync = inSync;
+            _reportedFolderVersion = version;
+        }
     }
 
     /// <summary>A file is "stable" once it can be opened exclusively (nothing else is still writing it).</summary>
@@ -95,7 +139,8 @@ public sealed class UploadService : IDisposable
 
     private IEnumerable<string> SafeEnumerate()
     {
-        try { return Directory.EnumerateFiles(_uploadDir, "*", SearchOption.AllDirectories); }
+        // Materialize inside the try: lazy enumeration can throw while traversing subfolders.
+        try { return Directory.GetFiles(_uploadDir, "*", SearchOption.AllDirectories); }
         catch { return []; }
     }
 

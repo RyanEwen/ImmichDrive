@@ -81,7 +81,10 @@ pass, `CloudFolderState` converts each folder to an in-sync cloud placeholder, o
 existing placeholder. This includes ordinary folders from older installations. Process children
 before parents and leave incomplete folders unmarked so Explorer does not show a finished badge
 for a failed enumeration. Mark the sync root too after a complete pass with no pending uploads.
-The writable `Upload` folder is excluded. The
+The writable `Upload` folder is managed separately by `UploadService`: it is marked in sync
+when no files remain, and pending while files are copying, uploading, or awaiting retry.
+Its state is checked at startup and before/after upload processing, including external removals.
+The
 "already exists" HRESULT `0x800700B7` is ignored. We also write a row to the SQLite `AssetIndex`
 (`rel_path` ⇄ `asset_id`, plus `is_video`/`size`) for the thumbnail extension and for
 self-healing re-creation without a network round-trip.

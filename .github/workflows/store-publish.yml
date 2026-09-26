@@ -59,6 +59,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Check release notes
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content Directory.Build.props
+          $version = $props.SelectSingleNode('//Version').InnerText
+          $notes = (Get-Content "release-notes/$version.txt" -Raw).Trim()
+          if ([string]::IsNullOrWhiteSpace($notes) -or $notes.Length -gt 1500) { throw 'Missing or invalid release notes.' }
+          & ./.github/scripts/tests/set-store-release-notes.Tests.ps1
+
       - name: Generate images
         shell: pwsh
         run: |
@@ -132,17 +141,22 @@ jobs:
         shell: pwsh
         env:
           NO_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.no_commit }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
         run: |
           [xml]$props = Get-Content "$env:GITHUB_WORKSPACE/Directory.Build.props"
           $version = $props.SelectSingleNode("//Version").InnerText
           $publishArgs = @('publish', "$env:GITHUB_WORKSPACE/ImmichDriveMSIX/bin/msix-output/ImmichDrive-$version.msixupload", '-id', '9MWC6165N7DH')
-          if ($env:NO_COMMIT -eq 'true') { $publishArgs += '--noCommit' }
+          # Stage first so release notes are saved and verified before certification begins.
+          $publishArgs += '--noCommit'
           # Tier1012 maps to US $0.99; regional prices can change when the tier is applied.
           $publishArgs += @('--priceId', 'Tier1012')
           & msstore @publishArgs
           if ($LASTEXITCODE -ne 0) {
             throw "Store publishing failed (exit $LASTEXITCODE). Review the submission in Partner Center."
           }
+          & ./.github/scripts/set-store-release-notes.ps1 -AppId 9MWC6165N7DH -UploadFileName "ImmichDrive-$version.msixupload" -NotesPath "release-notes/$version.txt" -Commit:($env:NO_COMMIT -ne 'true')
           if ($env:NO_COMMIT -eq 'true') {
             'Store draft uploaded. Review pricing and packages in Partner Center before committing.' >> $env:GITHUB_STEP_SUMMARY
           } else {

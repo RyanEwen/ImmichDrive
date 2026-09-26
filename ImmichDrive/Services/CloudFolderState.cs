@@ -29,7 +29,14 @@ internal static partial class CloudFolderState
     /// Marks a completely enumerated folder in sync without granting the user content-write access.
     /// WRITE_DAC is allowed by the drive's read-only ACE; it does not permit adding files.
     /// </summary>
-    public static bool MarkInSync(string path)
+    public static bool MarkInSync(string path) => SetInSync(path, true);
+
+    /// <summary>
+    /// Sets a folder's sync state, converting an ordinary directory in place when necessary.
+    /// Upload uses the pending state until all local files have been uploaded and removed.
+    /// Returns false when the folder cannot be updated so callers can retry later.
+    /// </summary>
+    public static bool SetInSync(string path, bool inSync)
     {
         try
         {
@@ -42,11 +49,18 @@ internal static partial class CloudFolderState
             if (handle.IsInvalid)
                 throw new Win32Exception(Marshal.GetLastPInvokeError());
 
+            var state = inSync
+                ? CfApi.CF_IN_SYNC_STATE.CF_IN_SYNC_STATE_IN_SYNC
+                : CfApi.CF_IN_SYNC_STATE.CF_IN_SYNC_STATE_NOT_IN_SYNC;
+            var flags = inSync
+                ? CfApi.CF_CONVERT_FLAGS.CF_CONVERT_FLAG_MARK_IN_SYNC
+                : CfApi.CF_CONVERT_FLAGS.CF_CONVERT_FLAG_NONE;
+
             int hr = isPlaceholder
-                ? CfApi.CfSetInSyncState(handle, CfApi.CF_IN_SYNC_STATE.CF_IN_SYNC_STATE_IN_SYNC,
+                ? CfApi.CfSetInSyncState(handle, state,
                     0, IntPtr.Zero)
                 : CfApi.CfConvertToPlaceholder(handle, IntPtr.Zero, 0,
-                    CfApi.CF_CONVERT_FLAGS.CF_CONVERT_FLAG_MARK_IN_SYNC, IntPtr.Zero, IntPtr.Zero);
+                    flags, IntPtr.Zero, IntPtr.Zero);
             if (hr < 0)
                 throw new COMException($"Cloud folder state update failed for {path}", hr);
 
@@ -55,7 +69,7 @@ internal static partial class CloudFolderState
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception or COMException)
         {
-            Logger.Warn(ex, "Could not mark folder in sync: {0}", path);
+            Logger.Warn(ex, "Could not set folder sync state to {0}: {1}", inSync, path);
             return false;
         }
     }

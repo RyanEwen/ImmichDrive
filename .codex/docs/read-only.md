@@ -50,3 +50,10 @@ file becomes readable-exclusive (finished copying), it `POST /api/assets` (multi
 `deviceAssetId`, `deviceId`, `fileCreatedAt`, `fileModifiedAt`) and **deletes the local file** on
 success. The asset then reappears in its date/album folders on the next sync — its "final destination".
 Failed uploads are left in Upload and retried on next app start.
+
+`UploadService` also owns the folder's Explorer sync badge through `CloudFolderState`. It
+converts an ordinary Upload directory to a cloud folder in place, preserving its writable ACL.
+Startup and upload passes check the actual files recursively: an empty folder is in sync;
+unfinished copies, failed uploads, and files whose local deletion failed remain pending.
+File and directory changes (including deletions) invalidate the cached badge, and failed
+Cloud Files state updates are retried on later ticks. Empty subfolders do not count as uploads.

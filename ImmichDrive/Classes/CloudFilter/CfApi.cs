@@ -46,6 +46,7 @@ internal static partial class CfApi
     [Flags]
     public enum CF_CONVERT_FLAGS : uint
     {
+        CF_CONVERT_FLAG_NONE = 0,
         CF_CONVERT_FLAG_MARK_IN_SYNC = 1,
     }
 
